@@ -6,8 +6,7 @@ ARG RSSHUB_REPO=https://github.com/DIYgod/RSSHub.git
 ARG RSSHUB_REF=master
 
 WORKDIR /source
-RUN git clone --depth=1 --branch ${RSSHUB_REF} ${RSSHUB_REPO} /rsshub && \
-    rm -rf /rsshub/.git
+RUN git clone --depth=1 --branch ${RSSHUB_REF} ${RSSHUB_REPO} /rsshub
 
 # ==============================================================================
 # Stage 2: Build & Prune RSSHub with Custom Routes
@@ -16,8 +15,12 @@ FROM node:24-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Enable pnpm via corepack
-RUN corepack enable pnpm
+# Enable pnpm via corepack & install git for git-hash resolution
+RUN corepack enable pnpm && \
+    apt-get update && \
+    apt-get install -yq --no-install-recommends git && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # 1. Copy upstream RSSHub base
 COPY --from=upstream /rsshub /app
@@ -26,6 +29,10 @@ COPY --from=upstream /rsshub /app
 # Then copy custom routes
 RUN find /app/lib/routes -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
 COPY ./routes/ /app/lib/routes/
+
+# Compatibility shims in case routes import @/utils/puppeteer or @/utils/puppeteer-utils
+RUN echo "export { getPlaywrightPage as getPuppeteerPage } from './playwright';" > /app/lib/utils/puppeteer.ts && \
+    echo "export { constructCookieArray, getCookies, parseCookieArray, setCookies } from './playwright-utils';" > /app/lib/utils/puppeteer-utils.ts
 
 # 3. Clean unused upstream docs, test files, and assets
 RUN rm -rf /app/docs /app/test /app/tests /app/spec /app/specs /app/.github /app/assets/build
