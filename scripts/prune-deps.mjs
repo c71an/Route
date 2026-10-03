@@ -29,13 +29,6 @@ const UNUSED_DEPS = [
     'narou',
     '@jocmp/mercury-parser',
     'sm-crypto-v2',
-    '@honeybadger-io/js',
-    '@scalar/hono-api-reference',
-    '@rss3/sdk',
-    'city-timezones',
-    'jsdom',
-    '@types/jsdom',
-    'discord-api-types',
 ];
 
 console.log(`[prune-deps] Original dependencies: ${Object.keys(pkg.dependencies || {}).length}`);
