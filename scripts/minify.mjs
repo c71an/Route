@@ -29,6 +29,21 @@ for (const file of fileList) {
     }
 }
 
+// Preserve browsers.json for patchright/playwright if present
+const possibleBrowsersJson = [
+    'node_modules/patchright/browsers.json',
+    'node_modules/patchright-core/browsers.json',
+    'node_modules/playwright-core/browsers.json',
+];
+for (const p of possibleBrowsersJson) {
+    const src = path.join(projectRoot, p);
+    if (fs.existsSync(src)) {
+        const dest = path.join(resultFolder, p);
+        await fse.copy(src, dest, { overwrite: true });
+        copied++;
+    }
+}
+
 console.log(`[minify] Successfully copied ${copied} essential files into app-minimal.`);
 
 // Clean up non-essential files from minimal node_modules

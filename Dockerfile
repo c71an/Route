@@ -57,13 +57,19 @@ LABEL description="Minimalist custom RSSHub Docker Image (linux/amd64, linux/arm
 
 ENV NODE_ENV=production \
     TZ=Asia/Shanghai \
-    PORT=1200
+    PORT=1200 \
+    CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
-# Install dumb-init for proper signal handling (PID 1) and curl for healthcheck
+# Install dumb-init, curl, Chromium (for weibo route), and Chinese font
 RUN apt-get update && \
-    apt-get install -yq --no-install-recommends dumb-init curl && \
+    apt-get install -yq --no-install-recommends \
+        dumb-init \
+        curl \
+        chromium \
+        fonts-wqy-zenhei \
+    && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc /usr/share/man
 

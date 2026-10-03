@@ -23,11 +23,11 @@
 
 ### 本项目的瘦身优化机制：
 1. **精准路由替换**：拉取上游 RSSHub 核心框架后，清空上游无关子目录，自动保留上游根级必要服务文件（`healthz.ts`、`index.tsx` 等），仅注入你自定义的 `routes` 业务目录。
-2. **剔除重型无用依赖**：在构建前移除不相关的数十个上游依赖（YouTube, Twitter, Telegram, Notion, Playwright 等）。
-3. **禁用无头浏览器下载**：跳过 Chromium/Playwright 二进制文件下载与庞大的系统 GUI 库安装。
+2. **保留必要组件并剔除其余重型无用依赖**：为支持微博路由（自动获取访客 Cookies），**完整保留 Patchright/Puppeteer 核心能力**；同时剔除无关的上游重型依赖（YouTube, Twitter, Telegram, Notion, Imapflow 等）。
+3. **极简系统级 Chromium 与中文字体**：摒弃官方体积庞大且在 ARM64 存在兼容问题的 Chromium 打包，改由运行阶段采用 Debian 原生包（`chromium --no-install-recommends` + `fonts-wqy-zenhei` 文泉驿中文字体），既满足微博爬虫对真实浏览器渲染与中文字体渲染的需求，又在 S905D（ARM64）和 Windows（AMD64）上保持极致精简，免除数百兆桌面 GUI 赘余库。
 4. **静态依赖追踪 (NFT Minification)**：利用 `@vercel/nft` (Node File Trace) 深度分析编译产物 `dist/index.mjs`，仅将实际被引用的 `node_modules` 运行时文件打包入镜像。
 5. **去除冗余元数据**：自动清理生产依赖中的 TypeScript 定义（`.d.ts`）、Source Map（`.map`）、文档、单元测试等。
-6. **最终效果**：镜像大小从 **数 GB 骤降至数十 MB ~ 100MB 级别**，拉取与部署秒级完成！
+6. **最终效果**：在**完整保留 Chromium 无头浏览器与微博爬取能力**的前提下，镜像大小仍比官方 2GB~3GB 镜像减少 **80% 以上**，兼顾轻量与功能完整性！
 
 ---
 
