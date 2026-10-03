@@ -1,0 +1,39 @@
+services:
+  rsshub:
+    # 可以直接使用 GitHub Actions 构建发布的镜像（替换为您的 GitHub 用户名/仓库名）
+    # image: ghcr.io/c71an/router:latest
+    # 或者使用本地构建:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rsshub-custom
+    restart: unless-stopped
+    ports:
+      - "1200:1200"
+    environment:
+      - NODE_ENV=production
+      - TZ=Asia/Shanghai
+      - CACHE_TYPE=redis
+      - REDIS_URL=redis://redis:6379/
+      - CACHE_EXPIRE=600
+      # 微博自定义 Cookie（选填，用于稳定抓取微博路由，避免访客封锁）
+      # - WEIBO_COOKIES=your_weibo_cookies_here
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: rsshub-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  redis-data:
