@@ -19,6 +19,58 @@ console.log(`[minify] Traced ${fileList.length} reachable files in node_modules.
 
 await fse.ensureDir(resultFolder);
 
+// 1. Locate and preserve browsers.json for patchright/patchright-core/playwright-core (including under .pnpm)
+const extraFiles = new Set();
+
+// Find any package directories related to patchright/playwright in traced files
+for (const file of fileList) {
+    for (const pkg of ['patchright-core', 'patchright', 'playwright-core', 'playwright']) {
+        const marker = `/${pkg}/`;
+        const idx = file.indexOf(marker);
+        if (idx !== -1) {
+            const pkgRoot = file.slice(0, idx + marker.length - 1);
+            const browsersJson = `${pkgRoot}/browsers.json`;
+            if (fs.existsSync(path.join(projectRoot, browsersJson))) {
+                extraFiles.add(browsersJson);
+            }
+        }
+    }
+    // oxc-parser dynamic assets
+    if (file.endsWith('/oxc-parser/src-js/raw-transfer/eager.js')) {
+        const deserializeDir = file.replace(/raw-transfer\/eager\.js$/, 'generated/deserialize');
+        if (fs.existsSync(path.join(projectRoot, deserializeDir))) {
+            extraFiles.add(deserializeDir);
+        }
+    }
+}
+
+// Global fallback scan for browsers.json in node_modules
+function findBrowsersJson(dir) {
+    if (!fs.existsSync(dir)) return;
+    try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                // Avoid infinite loops in symlinks if any
+                findBrowsersJson(fullPath);
+            } else if (entry.isFile() && entry.name === 'browsers.json') {
+                const relPath = path.relative(projectRoot, fullPath).replace(/\\/g, '/');
+                extraFiles.add(relPath);
+            }
+        }
+    } catch (e) {
+        // ignore errors
+    }
+}
+findBrowsersJson(path.join(projectRoot, 'node_modules'));
+
+for (const extra of extraFiles) {
+    if (!fileList.includes(extra)) {
+        fileList.push(extra);
+    }
+}
+
 let copied = 0;
 for (const file of fileList) {
     const src = path.join(projectRoot, file);
@@ -29,22 +81,7 @@ for (const file of fileList) {
     }
 }
 
-// Preserve browsers.json for patchright/playwright if present
-const possibleBrowsersJson = [
-    'node_modules/patchright/browsers.json',
-    'node_modules/patchright-core/browsers.json',
-    'node_modules/playwright-core/browsers.json',
-];
-for (const p of possibleBrowsersJson) {
-    const src = path.join(projectRoot, p);
-    if (fs.existsSync(src)) {
-        const dest = path.join(resultFolder, p);
-        await fse.copy(src, dest, { overwrite: true });
-        copied++;
-    }
-}
-
-console.log(`[minify] Successfully copied ${copied} essential files into app-minimal.`);
+console.log(`[minify] Successfully copied ${copied} essential files into app-minimal (including ${extraFiles.size} browser/parser assets).`);
 
 // Clean up non-essential files from minimal node_modules
 console.log('[minify] Pruning documentation, typings, test suites, and source maps...');
