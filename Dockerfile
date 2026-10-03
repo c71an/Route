@@ -15,10 +15,10 @@ FROM node:24-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Enable pnpm via corepack & install git for git-hash resolution
+# Enable pnpm via corepack & install git, python3, make, g++ for node-gyp native module support
 RUN corepack enable pnpm && \
     apt-get update && \
-    apt-get install -yq --no-install-recommends git && \
+    apt-get install -yq --no-install-recommends git python3 make g++ && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

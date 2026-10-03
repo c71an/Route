@@ -60,9 +60,10 @@ if (pkg.pnpm?.patchedDependencies) {
     }
 }
 
+const NATIVE_BUILD_EXCLUDE = ['bufferutil', 'utf-8-validate', 'sharp', 'sleep'];
 if (pkg.pnpm?.onlyBuiltDependencies) {
     pkg.pnpm.onlyBuiltDependencies = pkg.pnpm.onlyBuiltDependencies.filter(
-        (dep) => !UNUSED_DEPS.includes(dep)
+        (dep) => !UNUSED_DEPS.includes(dep) && !NATIVE_BUILD_EXCLUDE.includes(dep)
     );
 }
 
