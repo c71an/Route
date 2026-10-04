@@ -86,6 +86,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             RSSHUB_REF=${{ inputs.upstream_ref || 'master' }}
+          provenance: false
+          sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
