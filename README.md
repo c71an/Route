@@ -26,15 +26,7 @@
 │   └── workflows/
 │       └── docker-build.yml     # GitHub Actions 多架构 (amd64 / arm64) 构建工作流
 ├── routes/                      # 自定义路由目录（按需增减）
-│   ├── 7kid/                    # 7kid
-│   ├── chinacdc/                # 中国疾控中心
-│   ├── gov/                     # 最新政策法规
-│   ├── komatsu/                 # 小松挖掘机开工率
-│   ├── pcb/                     # 生机健康
-│   ├── ssm/                     # SSM 统计
-│   ├── stats/                   # 国家统计局数据发布
-│   ├── weibo/                   # 微博路由（轻量化纯 HTTP 自动换取访客 Cookie）
-│   └── zaixs/                   # 在线社区
+│   ├── ...                      # 路由文件夹
 ├── Dockerfile                   # 极简三阶段多架构构建文件（无 GUI/无浏览器依赖）
 ├── .dockerignore                # 构建上下文忽略配置
 └── README.md
