@@ -10,9 +10,6 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - '.github/workflows/**'
-  schedule:
-    # 每周一定时构建上游 master 最新代码
-    - cron: '0 3 * * 1'
   workflow_dispatch:
     inputs:
       upstream_ref:
@@ -76,7 +73,6 @@ jobs:
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
             type=sha,format=short,prefix=sha-
-            type=schedule,pattern={{date 'YYYYMMDD'}}
 
       - name: Build and push Multi-Arch Docker image
         id: docker_build

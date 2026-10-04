@@ -48,7 +48,6 @@
 
 - **触发条件**：
   - 代码推送：修改 `routes/**` 或 `Dockerfile` 并推送到 `main` / `master` 分支。
-  - 定时触发：每周一凌晨 03:00 UTC 自动拉取上游 RSSHub 最新 master 分支更新并编译。
   - 手动调度：支持在 Actions 控制台通过 `workflow_dispatch` 手动触发并指定构建参数。
 - **目标架构**：
   - `linux/amd64`（PC / 服务器 / WSL2）
