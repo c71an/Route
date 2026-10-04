@@ -75,16 +75,17 @@ const weiboUtils = {
                 return await visitorCookiesPromise;
             }
             if (coolingDown) {
+                // If cooling down, attempt to return cached cookies instead of immediately throwing
+                const cached = await cache.get(cacheKey);
+                if (cached) {
+                    return cached;
+                }
                 if (renew?.message) {
                     logger.warn(coolingDownMessage);
                     throw renew;
                 }
                 throw new Error(coolingDownMessage);
             }
-            coolingDown = true;
-            setTimeout(() => {
-                coolingDown = false;
-            }, config.cache.routeExpire * 1000);
 
             if (renew) {
                 logger.warn(`Renewing visitor Cookies from ${url}`);
@@ -179,14 +180,18 @@ const weiboUtils = {
 
                 const cookieStr = cookieParts.length > 0 ? cookieParts.join('; ') : `SUB=${sub}; SUBP=${subp};`;
 
-                if (renew) {
-                    await cache.set(cacheKey, cookieStr);
-                }
+                await cache.set(cacheKey, cookieStr);
                 return cookieStr;
             })();
 
             try {
                 return await visitorCookiesPromise;
+            } catch (error) {
+                coolingDown = true;
+                setTimeout(() => {
+                    coolingDown = false;
+                }, 30 * 1000); // 30s cooldown on failure
+                throw error;
             } finally {
                 visitorCookiesPromise = undefined;
             }
