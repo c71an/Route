@@ -1,7 +1,4 @@
-import http from 'node:http';
-import https from 'node:https';
 import querystring from 'node:querystring';
-import { URL } from 'node:url';
 
 import { load } from 'cheerio';
 
@@ -93,83 +90,60 @@ const weiboUtils = {
                 logger.info(`Fetching visitor Cookies from ${url}`);
             }
             visitorCookiesPromise = (async () => {
-                const request = (targetUrl: string, options: { method?: string; headers?: Record<string, string>; body?: string } = {}) =>
-                    new Promise<{ body: string; headers: http.IncomingHttpHeaders }>((resolve, reject) => {
-                        const parsed = new URL(targetUrl);
-                        const client = parsed.protocol === 'http:' ? http : https;
-                        const req = client.request(
-                            {
-                                hostname: parsed.hostname,
-                                port: parsed.port || (parsed.protocol === 'http:' ? 80 : 443),
-                                path: parsed.pathname + parsed.search,
-                                method: options.method || 'GET',
-                                headers: options.headers || {},
-                            },
-                            (res) => {
-                                let data = '';
-                                res.on('data', (chunk) => {
-                                    data += chunk;
-                                });
-                                res.on('end', () => {
-                                    resolve({ body: data, headers: res.headers });
-                                });
-                            }
-                        );
-                        req.on('error', reject);
-                        if (options.body) {
-                            req.write(options.body);
-                        }
-                        req.end();
-                    });
+                const ua = weiboUtils.apiHeaders['User-Agent'];
+                const postData = new URLSearchParams({
+                    cb: 'gen_callback',
+                    fp: JSON.stringify({
+                        os: '1',
+                        browser: 'Chrome120,0,0,0',
+                        fonts: 'undefined',
+                        screenInfo: '1920*1080*24',
+                        plugins: '',
+                    }),
+                }).toString();
 
-                const postData = 'cb=gen_callback&fp=' + encodeURIComponent(JSON.stringify({
-                    os: '1',
-                    browser: 'Chrome120,0,0,0',
-                    fonts: 'undefined',
-                    screenInfo: '1920*1080*24',
-                    plugins: '',
-                }));
-
-                const genRes = await request('https://passport.weibo.com/visitor/genvisitor', {
+                const genRes = await fetch('https://passport.weibo.com/visitor/genvisitor', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
-                        'User-Agent': weiboUtils.apiHeaders['User-Agent'],
+                        'User-Agent': ua,
                     },
                     body: postData,
                 });
-
-                const tidMatch = genRes.body.match(/"tid":"(.*?)"/);
+                const genText = await genRes.text();
+                const tidMatch = genText.match(/"tid":"(.*?)"/);
                 if (!tidMatch || !tidMatch[1]) {
-                    throw new Error(`Unable to fetch visitor tid. Response: ${genRes.body}`);
+                    throw new Error(`Unable to fetch visitor tid. Response: ${genText}`);
                 }
                 const tid = tidMatch[1];
 
                 const incarnateUrl = `https://passport.weibo.com/visitor/visitor?a=incarnate&t=${encodeURIComponent(tid)}&w=2&c=095&gc=&cb=cross_domain_action&from=weibo`;
-                const incarnateRes = await request(incarnateUrl, {
+                const incarnateRes = await fetch(incarnateUrl, {
                     headers: {
-                        'User-Agent': weiboUtils.apiHeaders['User-Agent'],
+                        'User-Agent': ua,
                     },
                 });
+                const incarnateText = await incarnateRes.text();
 
-                const subMatch = incarnateRes.body.match(/"sub":"(.*?)"/);
-                const subpMatch = incarnateRes.body.match(/"subp":"(.*?)"/);
+                const subMatch = incarnateText.match(/"sub":"(.*?)"/);
+                const subpMatch = incarnateText.match(/"subp":"(.*?)"/);
                 const sub = subMatch?.[1];
                 const subp = subpMatch?.[1];
 
                 if (!sub || !subp) {
-                    throw new Error(`Unable to extract visitor tokens. Response: ${incarnateRes.body}`);
+                    throw new Error(`Unable to extract visitor tokens. Response: ${incarnateText}`);
                 }
 
                 // Crossdomain handshake to set cookies for .weibo.cn
                 const crossUrl = `https://visitor.passport.weibo.cn/visitor/visitor?a=crossdomain&cb=return_back&s=${encodeURIComponent(sub)}&sp=${encodeURIComponent(subp)}&from=weibo&_rand=${Math.random()}&entry=sinawap`;
-                const crossRes = await request(crossUrl, {
+                const crossRes = await fetch(crossUrl, {
                     headers: {
-                        'User-Agent': weiboUtils.apiHeaders['User-Agent'],
+                        'User-Agent': ua,
                     },
+                    redirect: 'manual',
                 });
 
-                const setCookieHeaders = crossRes.headers['set-cookie'] || [];
+                const setCookieHeaders = (crossRes.headers as any).getSetCookie ? (crossRes.headers as any).getSetCookie() : [];
                 const cookieParts: string[] = [];
                 for (const item of setCookieHeaders) {
                     const match = item.match(/^([^=;]+=[^;]+)/);
