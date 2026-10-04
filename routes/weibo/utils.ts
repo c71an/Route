@@ -487,16 +487,18 @@ const weiboUtils = {
 
         return { description: html, title, link, guid, author, pubDate, category };
     },
-    getShowData: async (uid, bid) => {
-        const link = `https://m.weibo.cn/statuses/show?id=${bid}`;
-        const itemResponse = await got.get(link, {
-            headers: {
-                Referer: `https://m.weibo.cn/u/${uid}`,
-                ...weiboUtils.apiHeaders,
-            },
-        });
-        return itemResponse.data.data;
-    },
+    getShowData: async (uid, bid) =>
+        weiboUtils.tryWithCookies(async (cookies) => {
+            const link = `https://m.weibo.cn/statuses/show?id=${bid}`;
+            const itemResponse = await got.get(link, {
+                headers: {
+                    Referer: `https://m.weibo.cn/u/${uid}`,
+                    Cookie: cookies,
+                    ...weiboUtils.apiHeaders,
+                },
+            });
+            return itemResponse.data?.data;
+        }),
     formatVideo: (itemDesc, status) => {
         const pageInfo = status.page_info;
         const livePhotos = status.pics && status.pics.filter((pic) => pic.type === 'livephoto' && pic.videoSrc);
@@ -558,15 +560,18 @@ const weiboUtils = {
             }
             const articleId = articleIdMatch[1];
             const link = `https://card.weibo.com/article/m/aj/detail?id=${articleId}`;
-            const response = await cache.tryGet(link, async () => {
-                const _response = await got.get(link, {
-                    headers: {
-                        Referer: `https://card.weibo.com/article/m/show/id/${articleId}`,
-                        ...weiboUtils.apiHeaders,
-                    },
-                });
-                return _response.data;
-            }); // cache it!
+            const response = await cache.tryGet(link, () =>
+                weiboUtils.tryWithCookies(async (cookies) => {
+                    const _response = await got.get(link, {
+                        headers: {
+                            Referer: `https://card.weibo.com/article/m/show/id/${articleId}`,
+                            Cookie: cookies,
+                            ...weiboUtils.apiHeaders,
+                        },
+                    });
+                    return _response.data;
+                })
+            ); // cache it!
             const article = response.data;
             if (article && article.title && article.content) {
                 const title = article.title;
@@ -641,15 +646,18 @@ const weiboUtils = {
             const id = status.id;
             const mid = status.mid;
             const link = `https://m.weibo.cn/comments/hotflow?id=${id}&mid=${mid}&max_id_type=0`;
-            const response = await cache.tryGet(link, async () => {
-                const _response = await got.get(link, {
-                    headers: {
-                        Referer: `https://m.weibo.cn/detail/${id}`,
-                        ...weiboUtils.apiHeaders,
-                    },
-                });
-                return _response.data;
-            });
+            const response = await cache.tryGet(link, () =>
+                weiboUtils.tryWithCookies(async (cookies) => {
+                    const _response = await got.get(link, {
+                        headers: {
+                            Referer: `https://m.weibo.cn/detail/${id}`,
+                            Cookie: cookies,
+                            ...weiboUtils.apiHeaders,
+                        },
+                    });
+                    return _response.data;
+                })
+            );
             if (response.data && response.data.data) {
                 const comments = response.data.data;
                 itemDesc += '<br clear="both" /><div style="clear: both"></div><div style="background: #80808010;border-top:1px solid #80808030;border-bottom:1px solid #80808030;margin:0;padding:5px 20px;">';
