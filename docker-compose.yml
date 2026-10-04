@@ -1,7 +1,7 @@
 services:
   rsshub:
     # 可以直接使用 GitHub Actions 构建发布的镜像（替换为您的 GitHub 用户名/仓库名）
-    # image: ghcr.io/c71an/router:latest
+    # image: ghcr.io/c71an/route:latest
     # 或者使用本地构建:
     build:
       context: .

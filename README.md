@@ -1,4 +1,4 @@
-# Custom RSSHub (Router)
+# Custom RSSHub (Route)
 
 本项目用于**根据自定义路由集合构建私有 RSSHub 镜像**。采用**纯路由替换精简策略**：仅保留自身维护的业务路由与上游核心框架，抛弃上游自带的 1000+ 无关路由，同时保持官方完整的生产依赖和运行库生态，通过 GitHub Actions 全自动多架构构建，兼顾轻量与高稳定性。
 
@@ -61,7 +61,7 @@
 ### 镜像地址
 构建产物发布至 GitHub Container Registry (GHCR)：
 ```bash
-ghcr.io/<your-github-username>/router:latest
+ghcr.io/<your-github-username>/route:latest
 ```
 
 ---
@@ -91,7 +91,7 @@ docker run -d \
   -p 1200:1200 \
   -e NODE_ENV=production \
   -e TZ=Asia/Shanghai \
-  ghcr.io/c71an/router:latest
+  ghcr.io/c71an/route:latest
 ```
 
 ---
