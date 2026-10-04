@@ -7,7 +7,6 @@ on:
       - master
     paths:
       - 'routes/**'
-      - 'scripts/**'
       - 'Dockerfile'
       - '.dockerignore'
       - '.github/workflows/**'

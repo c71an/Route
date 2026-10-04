@@ -34,25 +34,17 @@ COPY ./routes/ /app/lib/routes/
 RUN echo "export { getPlaywrightPage as getPuppeteerPage } from './playwright';" > /app/lib/utils/puppeteer.ts && \
     echo "export { constructCookieArray, getCookies, parseCookieArray, setCookies } from './playwright-utils';" > /app/lib/utils/puppeteer-utils.ts
 
-# 3. Clean unused upstream docs, test files, and assets
-RUN rm -rf /app/docs /app/test /app/tests /app/spec /app/specs /app/.github /app/assets/build
-
-# 4. Prune unused heavy dependencies from package.json before install
-COPY ./scripts/prune-deps.mjs /app/scripts/prune-deps.mjs
-RUN node /app/scripts/prune-deps.mjs /app
-
-# 5. Install dependencies (skipping Chromium/browser binaries)
+# 3. Install all dependencies (skipping browser binary downloads as system chromium is used)
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV USE_CHINA_NPM_REGISTRY=0
 
-RUN pnpm install --no-frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
-# 6. Build RSSHub (build:routes + tsdown compilation)
+# 4. Build RSSHub (build:routes + tsdown compilation)
 RUN pnpm build
 
-# 7. Minify node_modules: trace reachable dependencies from dist/index.mjs
-COPY ./scripts/minify.mjs /app/scripts/minify.mjs
-RUN node /app/scripts/minify.mjs /app
+# 5. Prune devDependencies to keep standard production dependencies
+RUN pnpm prune --prod
 
 # ==============================================================================
 # Stage 3: Minimal Production Runtime
@@ -60,7 +52,7 @@ RUN node /app/scripts/minify.mjs /app
 FROM node:24-bookworm-slim AS runner
 
 LABEL maintainer="c71an"
-LABEL description="Minimalist custom RSSHub Docker Image (linux/amd64, linux/arm64)"
+LABEL description="Custom RSSHub Docker Image (linux/amd64, linux/arm64)"
 
 ENV NODE_ENV=production \
     TZ=Asia/Shanghai \
@@ -80,11 +72,11 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc /usr/share/man
 
-# Copy minimal runtime files only
+# Copy built application and production node_modules
 COPY --from=builder /app/package.json /app/package.json
 COPY --from=builder /app/dist /app/dist
 COPY --from=builder /app/lib/assets /app/lib/assets
-COPY --from=builder /app/app-minimal/node_modules /app/node_modules
+COPY --from=builder /app/node_modules /app/node_modules
 
 EXPOSE 1200
 
@@ -94,3 +86,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "--max-http-header-size=32768", "dist/index.mjs"]
+
