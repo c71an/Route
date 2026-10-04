@@ -63,15 +63,16 @@ const weiboUtils = {
     getCookies: (() => {
         const url = 'https://m.weibo.cn/';
         const cacheKey = 'weibo:visitor-cookies';
+        const COOKIE_TTL = 7 * 24 * 60 * 60; // 7 days (Sina visitor cookies are valid for 1 year)
         const coolingDownMessage = `Cooling down before new visitor Cookies from ${url} may be fetched`;
-        let coolingDown = false;
+        let coolingDownUntil = 0;
         let visitorCookiesPromise: Promise<string> | undefined;
 
         const fetchVisitorCookies = async (renew: any = false) => {
             if (visitorCookiesPromise) {
                 return await visitorCookiesPromise;
             }
-            if (coolingDown) {
+            if (Date.now() < coolingDownUntil) {
                 // If cooling down, attempt to return cached cookies instead of immediately throwing
                 const cached = await cache.get(cacheKey);
                 if (cached) {
@@ -154,17 +155,14 @@ const weiboUtils = {
 
                 const cookieStr = cookieParts.length > 0 ? cookieParts.join('; ') : `SUB=${sub}; SUBP=${subp};`;
 
-                await cache.set(cacheKey, cookieStr);
+                await cache.set(cacheKey, cookieStr, COOKIE_TTL);
                 return cookieStr;
             })();
 
             try {
                 return await visitorCookiesPromise;
             } catch (error) {
-                coolingDown = true;
-                setTimeout(() => {
-                    coolingDown = false;
-                }, 30 * 1000); // 30s cooldown on failure
+                coolingDownUntil = Date.now() + 30 * 1000; // 30s cooldown on failure
                 throw error;
             } finally {
                 visitorCookiesPromise = undefined;
@@ -182,7 +180,7 @@ const weiboUtils = {
             if (renew) {
                 return await fetchVisitorCookies(renew);
             }
-            return await cache.tryGet(cacheKey, fetchVisitorCookies);
+            return await cache.tryGet(cacheKey, fetchVisitorCookies, COOKIE_TTL);
         };
     })(),
     tryWithCookies: (() => {
