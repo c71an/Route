@@ -6,8 +6,6 @@ import { config } from '@/config';
 import cache from '@/utils/cache';
 import got from '@/utils/got';
 import logger from '@/utils/logger';
-import { getPlaywrightPage } from '@/utils/playwright';
-import { getCookies } from '@/utils/playwright-utils';
 import { fallback, queryToBoolean, queryToInteger } from '@/utils/readable-social';
 
 class RenewWeiboCookiesError extends Error {
@@ -91,39 +89,81 @@ const weiboUtils = {
                 logger.info(`Fetching visitor Cookies from ${url}`);
             }
             visitorCookiesPromise = (async () => {
-                let times = 0;
-                const { page, destroy } = await getPlaywrightPage(url, {
-                    onBeforeLoad: async (page) => {
-                        const expectResourceTypes = new Set(['document', 'script', 'xhr', 'fetch']);
-                        await page.setExtraHTTPHeaders({ 'User-Agent': weiboUtils.apiHeaders['User-Agent'] });
-                        await page.route('**/*', (route) => {
-                            const request = route.request();
-                            // 1st: initial request, 302 to visitor.passport.weibo.cn; 2nd: auth ok
-                            if (!expectResourceTypes.has(request.resourceType()) || times >= 2) {
-                                route.abort();
-                                return;
-                            }
-                            if (request.url().startsWith(url)) {
-                                times++;
-                            }
-                            route.continue();
-                        });
+                const postData = 'cb=gen_callback&fp=' + encodeURIComponent(JSON.stringify({
+                    os: '1',
+                    browser: 'Chrome120,0,0,0',
+                    fonts: 'undefined',
+                    screenInfo: '1920*1080*24',
+                    plugins: '',
+                }));
+
+                const genRes = await got.post('https://passport.weibo.com/visitor/genvisitor', {
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'User-Agent': weiboUtils.apiHeaders['User-Agent'],
                     },
-                    gotoConfig: { waitUntil: 'networkidle' },
+                    body: postData,
                 });
-                let cookies: string;
-                try {
-                    cookies = await getCookies(page, 'weibo.cn');
-                    if (times < 2 || !cookies) {
-                        throw new Error(`Unable to fetch visitor cookies. Please set WEIBO_COOKIES. Redirection: ${times}, last URL: ${page.url()}`);
+
+                const tidMatch = genRes.body.match(/"tid":"(.*?)"/);
+                if (!tidMatch || !tidMatch[1]) {
+                    throw new Error(`Unable to fetch visitor tid. Response: ${genRes.body}`);
+                }
+                const tid = tidMatch[1];
+
+                const incarnateRes = await got.get('https://passport.weibo.com/visitor/visitor', {
+                    searchParams: {
+                        a: 'incarnate',
+                        t: tid,
+                        w: 2,
+                        c: '095',
+                        gc: '',
+                        cb: 'cross_domain_action',
+                        from: 'weibo',
+                    },
+                    headers: {
+                        'User-Agent': weiboUtils.apiHeaders['User-Agent'],
+                    },
+                });
+
+                const subMatch = incarnateRes.body.match(/"sub":"(.*?)"/);
+                const subpMatch = incarnateRes.body.match(/"subp":"(.*?)"/);
+                const sub = subMatch?.[1];
+                const subp = subpMatch?.[1];
+
+                if (!sub || !subp) {
+                    throw new Error(`Unable to extract visitor tokens. Response: ${incarnateRes.body}`);
+                }
+
+                // Crossdomain handshake to set cookies for .weibo.cn
+                const crossRes = await got.get('https://visitor.passport.weibo.cn/visitor/visitor', {
+                    searchParams: {
+                        a: 'crossdomain',
+                        cb: 'return_back',
+                        s: sub,
+                        sp: subp,
+                        from: 'weibo',
+                        _rand: Math.random(),
+                        entry: 'sinawap',
+                    },
+                    headers: {
+                        'User-Agent': weiboUtils.apiHeaders['User-Agent'],
+                    },
+                });
+
+                const setCookieHeaders = crossRes.headers['set-cookie'] || [];
+                let cookieStr = `SUB=${sub}; SUBP=${subp};`;
+                for (const item of setCookieHeaders) {
+                    const match = item.match(/^([^=;]+=[^;]+)/);
+                    if (match) {
+                        cookieStr += ` ${match[1]};`;
                     }
-                } finally {
-                    await destroy();
                 }
+
                 if (renew) {
-                    await cache.set(cacheKey, cookies);
+                    await cache.set(cacheKey, cookieStr);
                 }
-                return cookies;
+                return cookieStr;
             })();
 
             try {
