@@ -1,3 +1,4 @@
+import http from 'node:http';
 import https from 'node:https';
 import querystring from 'node:querystring';
 import { URL } from 'node:url';
@@ -92,11 +93,13 @@ const weiboUtils = {
             }
             visitorCookiesPromise = (async () => {
                 const request = (targetUrl: string, options: { method?: string; headers?: Record<string, string>; body?: string } = {}) =>
-                    new Promise<{ body: string; headers: https.IncomingHttpHeaders }>((resolve, reject) => {
+                    new Promise<{ body: string; headers: http.IncomingHttpHeaders }>((resolve, reject) => {
                         const parsed = new URL(targetUrl);
-                        const req = https.request(
+                        const client = parsed.protocol === 'http:' ? http : https;
+                        const req = client.request(
                             {
                                 hostname: parsed.hostname,
+                                port: parsed.port || (parsed.protocol === 'http:' ? 80 : 443),
                                 path: parsed.pathname + parsed.search,
                                 method: options.method || 'GET',
                                 headers: options.headers || {},
