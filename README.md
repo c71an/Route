@@ -80,3 +80,26 @@ docker run -d \
    git commit -m "feat: add demo route"
    git push origin main
    ```
+
+---
+
+## 🖼️ 微博图片防盗链内置反代 (形态 2)
+
+本项目内置了专用的图片反代路由 (`/proxy`)，可自动为新浪/微博图片附带合法 `Referer: https://weibo.com/`，并提供 30 天强缓存。
+
+### 启用方法 (docker-compose.yml)
+
+只需在 RSSHub 环境变量中添加如下两行：
+
+```yaml
+environment:
+  # 使用本实例内置的 /proxy 路由代理图片，${href_ue} 会自动进行 URL 编码
+  HOTLINK_TEMPLATE: '/proxy?url=${href_ue}'
+  # 关键：严格限制仅对微博路由应用代理，绝不影响其他路由 (如 /7kid, /chinacdc 等)
+  HOTLINK_INCLUDE_PATHS: '/weibo'
+```
+
+- **精准范围**：仅 `/weibo/*` 路由下的图片链接会被重写为 `/proxy?url=...`，其他任何路由不受影响。
+- **视频保护**：构建阶段已对防盗链中间件打补丁，视频直接输出 CDN 原链，不会被代理截断。
+- **安全防刷**：内置白名单机制，仅允许代理 `*.sinaimg.cn`、`*.weibo.cn`、`*.weibocdn.com` 域名，防止被滥用为公开代理。
+
