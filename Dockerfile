@@ -46,11 +46,14 @@ RUN find /app/lib/routes -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
 # 3. 注入本项目 routes/ 中的自定义路由
 COPY ./routes/ /app/lib/routes/
 
+# 4. 调整防盗链逻辑：HOTLINK_TEMPLATE 仅对图片代理，对视频不代理
+RUN sed -i 's/multimediaHotlinkTemplate = filterPath(ctx.req.path) ? config.hotlink.template : undefined;/multimediaHotlinkTemplate = undefined;/g' /app/lib/middleware/anti-hotlink.ts
+
 # 环境变量：彻底跳过 Playwright 内置浏览器二进制下载
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV USE_CHINA_NPM_REGISTRY=0
 
-# 4. 彻底移除未使用的 playwright / puppeteer 依赖包，大幅缩减依赖体积
+# 5. 彻底移除未使用的 playwright / puppeteer 依赖包，大幅缩减依赖体积
 RUN pnpm remove playwright puppeteer @playwright/test --ignore-scripts || true
 
 # 安装依赖
@@ -59,7 +62,7 @@ RUN pnpm install --frozen-lockfile=false
 # 执行 RSSHub 编译流程 (构建路由注册表及 TypeScript 编译)
 RUN pnpm build
 
-# 5. 执行官方同款 @vercel/nft 深度文件追踪摇树，仅保留实际引用到的 node_modules 文件
+# 6. 执行官方同款 @vercel/nft 深度文件追踪摇树，仅保留实际引用到的 node_modules 文件
 RUN pnpm add @vercel/nft fs-extra --save-prod && \
     export PROJECT_ROOT=/app && \
     node /app/scripts/docker/minify-docker.js && \
