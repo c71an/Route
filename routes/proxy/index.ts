@@ -11,42 +11,12 @@ export const route: Route = {
     description: '内部图片反代服务，自动附带合法 Referer 绕过防盗链机制，并设置浏览器强缓存。',
 };
 
-// 仅允许代理的白名单域名后缀，防止成为任意开放代理 (Open Proxy)
-const ALLOWED_HOST_SUFFIXES = [
-    '.sinaimg.cn',
-    '.weibo.cn',
-    '.weibocdn.com',
-    'sinaimg.cn',
-    'weibo.cn',
-    'weibocdn.com',
-];
-
-function isAllowedUrl(urlString: string): boolean {
-    try {
-        const parsed = new URL(urlString);
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-            return false;
-        }
-        const hostname = parsed.hostname.toLowerCase();
-        return ALLOWED_HOST_SUFFIXES.some((suffix) => hostname === suffix || hostname.endsWith(suffix.startsWith('.') ? suffix : `.${suffix}`));
-    } catch {
-        return false;
-    }
-}
-
 async function handler(ctx) {
     const targetUrl = ctx.req.query('url');
 
     if (!targetUrl) {
         return new Response('Missing "url" query parameter', {
             status: 400,
-            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-        });
-    }
-
-    if (!isAllowedUrl(targetUrl)) {
-        return new Response('Forbidden: domain not allowed by proxy whitelist', {
-            status: 403,
             headers: { 'Content-Type': 'text/plain; charset=utf-8' },
         });
     }
@@ -69,7 +39,7 @@ async function handler(ctx) {
         const contentType = upstreamResponse.headers.get('content-type') || 'image/jpeg';
         const responseHeaders = new Headers();
         responseHeaders.set('Content-Type', contentType);
-        // 微博图片是基于哈希命名的静态资源，设置 30 天强缓存，减少重复请求
+        // 设置 30 天强缓存，减少重复请求
         responseHeaders.set('Cache-Control', 'public, max-age=2592000, immutable');
 
         const contentLength = upstreamResponse.headers.get('content-length');
