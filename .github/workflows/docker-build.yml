@@ -91,6 +91,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Prune old container versions in GHCR
+        if: (github.event_name != 'workflow_dispatch' || inputs.push_image == true) && success()
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          packages: 'route'
+          keep-n-tagged: 1
+          delete-untagged: true
+          delete-ghost-images: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build Summary
         if: always()
         run: |
