@@ -1,80 +1,86 @@
 # Custom RSSHub (Route)
 
-本项目用于**根据自定义路由集合构建私有 RSSHub 镜像**。采用三阶段多阶段构建与纯路由替换精简策略：拉取上游核心代码，清空上游无关路由子目录并注入私有自定义路由，支持 `linux/amd64` 与 `linux/arm64` 双架构自动编译发布。
+轻量级私有定制版 RSSHub 镜像。基于上游最新核心，剔除全部无关冗余路由与重型浏览器（Chromium/Playwright）依赖，仅注入本项目自定义路由，并通过 `@vercel/nft` 深度摇树压缩。
+
+- ⚡ **极致轻量**：镜像体积压缩至 ~90MB，内存占用极低。
+- 🌍 **多架构支持**：GitHub Actions 自动构建并发布 `linux/amd64` 与 `linux/arm64`。
+- 🛡️ **内置图片反代**：原生提供 `/proxy` 流式反代端点，自动绕过微博等图床防盗链，且不拦截视频直链。
 
 ---
 
-## 🏗️ 镜像构建阶段流程
+## 🚀 快速启动
 
-```text
-[阶段 1: upstream]
-      ↓ 克隆上游 RSSHub master 分支核心代码
-[阶段 2: builder]
-      ↓ 1. 清空上游 lib/routes/* 下所有子目录（保留根级通用文件）
-      ↓ 2. 注入本项目 routes/ 中的自定义路由
-      ↓ 3. 安装依赖并执行 pnpm build，裁剪开发依赖
-[阶段 3: runner]
-      ↓ 基于 Debian 极简运行时，彻底舍弃 Chromium/X11/字体，编译发布 linux/amd64 和 linux/arm64 镜像
-```
-
----
-
-## 📁 目录结构
-
-```text
-├── .github/
-│   └── workflows/
-│       └── docker-build.yml     # GitHub Actions 多架构 (amd64 / arm64) 构建工作流
-├── routes/                      # 自定义路由目录（按需增减）
-│   ├── ...                      # 路由文件夹
-├── Dockerfile                   # 极简三阶段多架构构建文件（无 GUI/无浏览器依赖）
-├── .dockerignore                # 构建上下文忽略配置
-└── README.md
-```
-
----
-
-## 🚀 GitHub Actions 自动构建
-
-项目内置了自动化多架构构建工作流（[`.github/workflows/docker-build.yml`](.github/workflows/docker-build.yml)）：
-
-- **触发条件**：
-  - 代码推送：修改 `routes/**` 或 `Dockerfile` 并推送到 `main` / `master` 分支。
-  - 手动调度：支持在 Actions 控制台通过 `workflow_dispatch` 手动触发并指定构建参数。
-- **目标架构**：
-  - `linux/amd64`（PC / 服务器 / WSL2）
-  - `linux/arm64`（ARM 电视盒子如 S905D / 树莓派 / 苹果 M 系列服务器）
-- **发布目标**：发布到 GitHub Container Registry (GHCR) 及 Docker Hub（可选）。
-
----
-
-## 🛠️ 快速启动
-
-### 运行容器
+### 基础部署 (Docker CLI)
 
 ```bash
 docker run -d \
-  --name rsshub-custom \
+  --name rsshub \
   --restart unless-stopped \
   -p 1200:1200 \
   -e NODE_ENV=production \
   -e TZ=Asia/Shanghai \
-  ghcr.io/<your-github-username>/route:latest
+  -e CACHE_EXPIRE=600 \
+  -e DEBUG_INFO=false \
+  ghcr.io/c71an/route:latest
 ```
 
-### 验证服务
+### 推荐部署 (Docker Compose 带防盗链反代)
 
-- 首页状态：`http://localhost:1200/`
-- 健康检查：`http://localhost:1200/healthz`
-- 路由测试：`http://localhost:1200/weibo/user/1195230310`
+若使用 FreshRSS 等阅读器订阅微博，建议开启内置图片反代以绕过防盗链限制：
+
+```yaml
+services:
+  rsshub:
+    image: ghcr.io/c71an/route:latest
+    container_name: rsshub
+    restart: unless-stopped
+    ports:
+      - "1200:1200"
+    environment:
+      NODE_ENV: production
+      TZ: Asia/Shanghai
+      CACHE_EXPIRE: 600
+      DEBUG_INFO: "false"
+
+      # ── 图片防盗链反代配置 ──
+      # 局域网阅读器推荐填入 RSSHub 实例地址（如 http://192.168.1.x:1200/proxy?url=${href_ue}）
+      HOTLINK_TEMPLATE: '/proxy?url=${href_ue}'
+      # 严格限定代理范围，仅对微博生效，绝不影响其他路由
+      HOTLINK_INCLUDE_PATHS: '/weibo'
+```
 
 ---
 
-## ➕ 新增自定义路由
+## 🖼️ 图片防盗链内置反代机制
 
-1. 在 `routes/` 下新建对应路由文件夹和 `.ts` 文件（如 `routes/demo/index.ts`）。
-2. 按照 RSSHub 路由规范编写配置与逻辑。
-3. 提交推送至 GitHub，Actions 将自动进行双架构编译并发布最新镜像：
+项目内置了针对防盗链图床的原生流式反代端点（`/proxy`）：
+
+1. **动态 Referer 注入**：服务端根据目标图片域名（如 `*.sinaimg.cn`、`*.weibocdn.com`）自动附带合法 `Referer: https://weibo.com/`，彻底告别 403 裂图。
+2. **零磁盘流式透传**：数据流即收即发，不落地硬盘，不堆积内存。
+3. **客户端 30 天强缓存**：自动注入 `Cache-Control: public, max-age=2592000, immutable`，阅读器二次打开秒加载，极大减少重复请求。
+4. **视频直链保护**：构建阶段已对防盗链中间件进行深度修剪，仅拦截并代理 `<img>` 图片，视频依然保持官方 CDN 直连播放。
+
+> **提示**：后续如需为其他平台（知乎、B站等）添加 Referer 规则，只需在 [`routes/proxy/index.ts`](routes/proxy/index.ts) 的 `REFERER_RULES` 中追加映射，并在 `HOTLINK_INCLUDE_PATHS` 中用逗号追加路由路径（如 `/weibo,/zhihu`）即可。
+
+---
+
+## 🛠️ 本地开发与添加路由
+
+```text
+├── .github/workflows/docker-build.yml   # 自动编译发布工作流 (amd64 / arm64)
+├── routes/                              # 自定义路由目录
+│   ├── proxy/index.ts                  # 内置图片防盗链流式反代端点
+│   ├── weibo/                          # 微博路由与防频刷工具
+│   └── ...                             # 其他私有路由 (7kid, chinacdc, gov 等)
+├── Dockerfile                           # 极简三阶段构建 (upstream -> builder -> runner)
+└── README.md
+```
+
+### 添加新路由
+
+1. 在 `routes/` 下创建对应目录与脚本（例如 `routes/demo/index.ts`）。
+2. 按照 RSSHub 规范编写 `export const route = { ... }` 与数据提取逻辑。
+3. 推送至 `main` 分支，GitHub Actions 将全自动触发多架构构建与发布：
    ```bash
    git add routes/
    git commit -m "feat: add demo route"
@@ -83,23 +89,8 @@ docker run -d \
 
 ---
 
-## 🖼️ 微博图片防盗链内置反代 (形态 2)
+## 🔍 服务验证
 
-本项目内置了专用的图片反代路由 (`/proxy`)，可自动为新浪/微博图片附带合法 `Referer: https://weibo.com/`，并提供 30 天强缓存。
-
-### 启用方法 (docker-compose.yml)
-
-只需在 RSSHub 环境变量中添加如下两行：
-
-```yaml
-environment:
-  # 使用本实例内置的 /proxy 路由代理图片，${href_ue} 会自动进行 URL 编码
-  HOTLINK_TEMPLATE: '/proxy?url=${href_ue}'
-  # 关键：严格限制仅对微博路由应用代理，绝不影响其他路由 (如 /7kid, /chinacdc 等)
-  HOTLINK_INCLUDE_PATHS: '/weibo'
-```
-
-- **精准范围**：仅 `/weibo/*` 路由下的图片链接会被重写为 `/proxy?url=...`，其他任何路由不受影响。
-- **视频保护**：构建阶段已对防盗链中间件打补丁，视频直接输出 CDN 原链，不会被代理截断。
-- **本地友好**：纯内网自用设计，开箱即用，无外部依赖。
-
+- **健康检查**：`http://localhost:1200/healthz`
+- **微博路由**：`http://localhost:1200/weibo/user/1195230310`
+- **反代探针**：`http://localhost:1200/proxy?url=https%3A%2F%2Fwx1.sinaimg.cn...`
