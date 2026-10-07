@@ -36,7 +36,13 @@ function extractInitialState($: CheerioAPI) {
     }
 
     script = script.slice(script.indexOf('window.__INITIAL_STATE__=') + 'window.__INITIAL_STATE__='.length);
-    script = script.replaceAll('undefined', 'null').replaceAll(/new Map\(\s*\[\s*\]\s*\)/g, 'null');
+    // 处理小红书前端注入的非标准 JSON 构造器与关键字
+    script = script
+        .replaceAll('undefined', 'null')
+        .replaceAll(/new Map\(\s*\[[\s\S]*?\]\s*\)/g, 'null')
+        .replaceAll(/new Set\(\s*\[[\s\S]*?\]\s*\)/g, '[]')
+        .replaceAll(/new Set\(\s*\)/g, '[]')
+        .replaceAll(/new Map\(\s*\)/g, 'null');
 
     return script;
 }
@@ -233,3 +239,4 @@ export async function renderNotesFulltext(notes: any[], urlPrefix: string, cooki
     data.push(...(await Promise.all(promises)));
     return data;
 }
+
