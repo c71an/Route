@@ -20,9 +20,10 @@ interface RefererRule {
 const REFERER_RULES: RefererRule[] = [
     // 微博 / 新浪图床
     { pattern: /(?:sinaimg\.cn|weibo\.cn|weibocdn\.com)$/i, referer: 'https://weibo.com/' },
+    // 小红书图床
+    { pattern: /xhscdn\.com$/i, referer: 'https://www.xiaohongshu.com/' },
     // 后续如有其它平台，直接在此追加，例如：
     // { pattern: /zhimg\.com$/i, referer: 'https://www.zhihu.com/' },
-    // { pattern: /xhscdn\.com$/i, referer: 'https://www.xiaohongshu.com/' },
     // { pattern: /hdslb\.com$/i, referer: 'https://www.bilibili.com/' },
 ];
 

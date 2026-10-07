@@ -45,8 +45,11 @@ services:
       # ── 图片防盗链反代配置 ──
       # 局域网阅读器推荐填入 RSSHub 实例地址（如 http://192.168.1.x:1200/proxy?url=${href_ue}）
       HOTLINK_TEMPLATE: '/proxy?url=${href_ue}'
-      # 严格限定代理范围，仅对微博生效，绝不影响其他路由
-      HOTLINK_INCLUDE_PATHS: '/weibo'
+      # 限定代理范围（支持逗号分隔，如 /weibo,/xiaohongshu）
+      HOTLINK_INCLUDE_PATHS: '/weibo,/xiaohongshu'
+
+      # ── 小红书配置（轻量纯 HTTP 模式） ──
+      # XIAOHONGSHU_COOKIE: '你的小红书网页版 Cookie'
 ```
 
 ---
