@@ -222,8 +222,9 @@ export async function renderNotesFulltext(notes: any[], urlPrefix: string, profi
         const link = `${urlPrefix}/${id}`;
         const guid = `${urlPrefix}/${noteCard.noteId}`;
 
-        // 仅从第 2 个请求开始加入人类浏览间隔延迟
-        if (i > 0) {
+        // 仅当缓存未命中（即真正需要发起网络请求）时才加入人类浏览间隔延迟，命中缓存则瞬间返回
+        const isCached = await cache.get(link);
+        if (!isCached && i > 0) {
             const jitterMs = 500 + Math.floor(Math.random() * 700);
             await sleep(jitterMs);
         }
