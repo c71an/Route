@@ -6,3 +6,4 @@ export const namespace: Namespace = {
     description: '小红书博主笔记订阅（轻量纯 HTTP + Cookie 直取模式）',
     lang: 'zh-CN',
 };
+

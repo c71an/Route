@@ -53,7 +53,7 @@ async function handler(ctx) {
         async () => {
             const urlNotePrefix = 'https://www.xiaohongshu.com/explore';
             const user = await getUserWithCookie(url, cookie);
-            const notes = await renderNotesFulltext(user.notes || [], urlNotePrefix, cookie, displayLivePhoto);
+            const notes = await renderNotesFulltext(user.notes || [], urlNotePrefix, url, cookie, displayLivePhoto);
 
             const basicInfo = user.userPageData.basicInfo;
             return {
@@ -67,3 +67,4 @@ async function handler(ctx) {
         3600 // 缓存 1 小时
     );
 }
+

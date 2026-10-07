@@ -7,8 +7,13 @@ import logger from '@/utils/logger';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
 
-// 模拟真实桌面浏览器的请求头
-const getHeaders = (cookie?: string) => ({
+// 随机休眠辅助函数，模拟人类浏览停顿
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// 用户浏览器环境真实模拟（与生成 Cookie 的浏览器保持严格一致）
+const UA_CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36';
+
+const getHeaders = (cookie?: string, referer?: string) => ({
     Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
     'Accept-Encoding': 'gzip, deflate, br',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
@@ -16,15 +21,16 @@ const getHeaders = (cookie?: string) => ({
     Connection: 'keep-alive',
     Host: 'www.xiaohongshu.com',
     Pragma: 'no-cache',
-    'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    'Sec-Ch-Ua': '"Not A(Brand";v="8", "Chromium";v="154", "Google Chrome";v="154"',
     'Sec-Ch-Ua-Mobile': '?0',
     'Sec-Ch-Ua-Platform': '"Windows"',
     'Sec-Fetch-Dest': 'document',
     'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-Site': referer ? 'same-origin' : 'none',
     'Sec-Fetch-User': '?1',
     'Upgrade-Insecure-Requests': '1',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'User-Agent': UA_CHROME,
+    ...(referer && { Referer: referer }),
     ...(cookie && { Cookie: cookie }),
 });
 
@@ -92,13 +98,14 @@ export async function getUserWithCookie(url: string, cookie: string) {
 }
 
 // 获取单条笔记全文详情（带组图、长文与视频直链）
-export async function getFullNote(link: string, cookie: string, displayLivePhoto: boolean) {
+export async function getFullNote(link: string, profileUrl: string, cookie: string, displayLivePhoto: boolean) {
+    // 单篇笔记内容具有极高静态稳定性，设置 7 天持久缓存（跳过历史已抓取条目，极大降低网络请求）
     return await cache.tryGet(
         link,
         async () => {
             logger.http(`Requesting XiaoHongShu Note Detail: ${link}`);
             const res = await ofetch(link, {
-                headers: getHeaders(cookie),
+                headers: getHeaders(cookie, profileUrl), // 动态携带博主主页作为 Referer
             });
 
             const $ = load(res);
@@ -190,12 +197,12 @@ export async function getFullNote(link: string, cookie: string, displayLivePhoto
                 updated,
             };
         },
-        config.cache.contentExpire
+        604800 // 缓存 7 天 (7 * 24 * 3600 秒)
     );
 }
 
-// 批量渲染博主笔记全文
-export async function renderNotesFulltext(notes: any[], urlPrefix: string, cookie: string, displayLivePhoto: boolean) {
+// 批量渲染博主笔记全文（含限制前 5 篇 + 串行随机延迟防风控）
+export async function renderNotesFulltext(notes: any[], urlPrefix: string, profileUrl: string, cookie: string, displayLivePhoto: boolean) {
     const data: Array<{
         title: string;
         link: string;
@@ -206,37 +213,45 @@ export async function renderNotesFulltext(notes: any[], urlPrefix: string, cooki
         updated?: Date;
     }> = [];
 
-    const promises = notes.flatMap((noteGroup) =>
-        noteGroup.map(async ({ noteCard, id }) => {
-            const link = `${urlPrefix}/${id}`;
-            const guid = `${urlPrefix}/${noteCard.noteId}`;
-            try {
-                const { title, description, pubDate, updated } = await getFullNote(link, cookie, displayLivePhoto);
-                return {
-                    title,
-                    link,
-                    description,
-                    author: noteCard.user?.nickName || noteCard.user?.nickname,
-                    guid,
-                    pubDate,
-                    updated,
-                };
-            } catch (err: any) {
-                // 如果单条详情抓取失败，降级展示封面图和简短标题，确保不打断整个 Feed
-                logger.warn(`Failed to fetch full note for ${link}: ${err.message}`);
-                const coverUrl = noteCard.cover?.infoList?.pop()?.url || '';
-                return {
-                    title: noteCard.displayTitle,
-                    link,
-                    description: coverUrl ? `<img src="${coverUrl}"><br>${noteCard.displayTitle}` : noteCard.displayTitle,
-                    author: noteCard.user?.nickName || noteCard.user?.nickname,
-                    guid,
-                };
-            }
-        })
-    );
+    // 1. 硬核优化 1：平铺笔记列表并截取最新的前 5 篇，严控请求总量
+    const allNotes = notes.flat().slice(0, 5);
 
-    data.push(...(await Promise.all(promises)));
+    // 2. 硬核优化 2：采用串行处理 + 随机延迟（500ms ~ 1200ms），平滑流量，消除突发 Spike
+    for (let i = 0; i < allNotes.length; i++) {
+        const { noteCard, id } = allNotes[i];
+        const link = `${urlPrefix}/${id}`;
+        const guid = `${urlPrefix}/${noteCard.noteId}`;
+
+        // 仅从第 2 个请求开始加入人类浏览间隔延迟
+        if (i > 0) {
+            const jitterMs = 500 + Math.floor(Math.random() * 700);
+            await sleep(jitterMs);
+        }
+
+        try {
+            const { title, description, pubDate, updated } = await getFullNote(link, profileUrl, cookie, displayLivePhoto);
+            data.push({
+                title,
+                link,
+                description,
+                author: noteCard.user?.nickName || noteCard.user?.nickname,
+                guid,
+                pubDate,
+                updated,
+            });
+        } catch (err: any) {
+            // 单篇风控或失效时平滑降级展示封面大图，不打断整个 Feed
+            logger.warn(`Failed to fetch full note for ${link}: ${err.message}`);
+            const coverUrl = noteCard.cover?.infoList?.pop()?.url || '';
+            data.push({
+                title: noteCard.displayTitle,
+                link,
+                description: coverUrl ? `<img src="${coverUrl}"><br>${noteCard.displayTitle}` : noteCard.displayTitle,
+                author: noteCard.user?.nickName || noteCard.user?.nickname,
+                guid,
+            });
+        }
+    }
+
     return data;
 }
-
