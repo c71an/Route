@@ -15,13 +15,15 @@ const UA_CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 
 const getHeaders = (cookie?: string, referer?: string) => ({
     Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br, zstd',
+    'Accept-Language': 'zh-CN, zh;q=0.9, en-US;q=0.8, en;q=0.7',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
+    Dnt: '1',
     Host: 'www.xiaohongshu.com',
     Pragma: 'no-cache',
-    'Sec-Ch-Ua': '"Not A(Brand";v="8", "Chromium";v="154", "Google Chrome";v="154"',
+    Priority: 'u=0, i',
+    'Sec-Ch-Ua': '"Chromium";v="154", "Google Chrome";v="154", "Not A(Brand";v="99"',
     'Sec-Ch-Ua-Mobile': '?0',
     'Sec-Ch-Ua-Platform': '"Windows"',
     'Sec-Fetch-Dest': 'document',
@@ -81,7 +83,11 @@ export async function getUserWithCookie(url: string, cookie: string) {
 
         const match = href.match(/\/([0-9a-f]{24})(?:\?|$)/i);
         if (match && href.includes('?')) {
-            tokenizedPaths.set(match[1], href);
+            let finalHref = href;
+            if (!finalHref.includes('xsec_source=')) {
+                finalHref += '&xsec_source=pc_user';
+            }
+            tokenizedPaths.set(match[1], finalHref);
         }
     });
 
@@ -213,10 +219,10 @@ export async function renderNotesFulltext(notes: any[], urlPrefix: string, profi
         updated?: Date;
     }> = [];
 
-    // 1. 硬核优化 1：平铺笔记列表并截取最新的前 5 篇，严控请求总量
-    const allNotes = notes.flat().slice(0, 5);
+    // 1. 硬核优化 1：平铺笔记列表并截取最新的前 2 篇，严控请求总量，防止触发异构风控
+    const allNotes = notes.flat().slice(0, 2);
 
-    // 2. 硬核优化 2：采用串行处理 + 随机延迟（500ms ~ 1200ms），平滑流量，消除突发 Spike
+    // 2. 硬核优化 2：采用串行处理 + 随机拟真延迟（1500ms ~ 3000ms），平滑突发流量
     for (let i = 0; i < allNotes.length; i++) {
         const { noteCard, id } = allNotes[i];
         const link = `${urlPrefix}/${id}`;
@@ -225,7 +231,7 @@ export async function renderNotesFulltext(notes: any[], urlPrefix: string, profi
         // 仅当缓存未命中（即真正需要发起网络请求）时才加入人类浏览间隔延迟，命中缓存则瞬间返回
         const isCached = await cache.get(link);
         if (!isCached && i > 0) {
-            const jitterMs = 500 + Math.floor(Math.random() * 700);
+            const jitterMs = 1500 + Math.floor(Math.random() * 1500);
             await sleep(jitterMs);
         }
 

@@ -47,7 +47,7 @@ async function handler(ctx) {
         throw new Error('未检测到 XIAOHONGSHU_COOKIE！纯 HTTP 轻量模式需要配置小红书网页版 Cookie。');
     }
 
-    // 默认缓存 1 小时，避免频繁并发访问触发小红书风控滑块
+    // 默认缓存 2 小时，避免频繁并发访问触发小红书风控滑块与异常会话登出
     return await cache.tryGet(
         `xiaohongshu:user:${userId}:${displayLivePhoto ? '1' : '0'}`,
         async () => {
@@ -64,7 +64,7 @@ async function handler(ctx) {
                 item: notes,
             };
         },
-        3600 // 缓存 1 小时
+        7200 // 缓存 2 小时
     );
 }
 
