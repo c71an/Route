@@ -207,7 +207,7 @@ export async function getFullNote(link: string, profileUrl: string, cookie: stri
     );
 }
 
-// 批量渲染博主笔记全文（含限制前 5 篇 + 串行随机延迟防风控）
+// 批量渲染博主笔记全文（仅抓取并输出最新的前 2 篇全文，其余笔记全部过滤不展示）
 export async function renderNotesFulltext(notes: any[], urlPrefix: string, profileUrl: string, cookie: string, displayLivePhoto: boolean) {
     const data: Array<{
         title: string;
@@ -219,7 +219,7 @@ export async function renderNotesFulltext(notes: any[], urlPrefix: string, profi
         updated?: Date;
     }> = [];
 
-    // 1. 硬核优化 1：平铺笔记列表并截取最新的前 2 篇，严控请求总量，防止触发异构风控
+    // 1. 严格截取最新的前 2 篇笔记：仅抓取这 2 篇全文，其余所有历史笔记全部丢弃不输出到 Feed
     const allNotes = notes.flat().slice(0, 2);
 
     // 2. 硬核优化 2：采用串行处理 + 随机拟真延迟（1500ms ~ 3000ms），平滑突发流量
