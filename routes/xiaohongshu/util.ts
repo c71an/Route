@@ -234,6 +234,20 @@ export async function getFullNote(link: string, profileUrl: string, cookie: stri
     );
 }
 
+// 从 24 位小红书笔记 ID 提取秒级发布时间戳（ObjectId 前 8 位为 Hex 时间戳）
+export function getNoteTimestamp(note: any): number {
+    const rawId = note?.noteCard?.noteId || note?.id || '';
+    const match = rawId.match(/([0-9a-f]{24})/i);
+    if (match) {
+        const hex = match[1].slice(0, 8);
+        const timestamp = parseInt(hex, 16);
+        if (!isNaN(timestamp) && timestamp > 0) {
+            return timestamp;
+        }
+    }
+    return 0;
+}
+
 // 批量渲染博主笔记全文（仅抓取并输出最新的前 2 篇全文，其余笔记全部过滤不展示）
 export async function renderNotesFulltext(notes: any[], urlPrefix: string, profileUrl: string, cookie: string, displayLivePhoto: boolean) {
     const data: Array<{
@@ -246,8 +260,11 @@ export async function renderNotesFulltext(notes: any[], urlPrefix: string, profi
         updated?: Date;
     }> = [];
 
-    // 1. 严格截取最新的前 2 篇笔记：仅抓取这 2 篇全文，其余所有历史笔记全部丢弃不输出到 Feed
-    const allNotes = notes.flat().slice(0, 2);
+    // 1. 先按底层 ObjectId 真实发布时间戳进行绝对倒序（置顶的陈年老笔记会被自然排到后面）
+    const sortedNotes = [...notes.flat()].sort((a, b) => getNoteTimestamp(b) - getNoteTimestamp(a));
+
+    // 2. 严格截取时间真正最新的前 2 篇笔记：仅抓取这 2 篇全文，其余所有历史笔记全部丢弃不输出到 Feed
+    const allNotes = sortedNotes.slice(0, 2);
 
     // 2. 硬核优化 2：采用串行处理 + 随机拟真延迟（1500ms ~ 3000ms），平滑突发流量
     for (let i = 0; i < allNotes.length; i++) {
