@@ -36,6 +36,31 @@ const getHeaders = (cookie?: string, referer?: string) => ({
     ...(cookie && { Cookie: cookie }),
 });
 
+// 规范化小红书图片直链：将带有时间戳与临时鉴权 Token 的动态 CDN 链接转换为永久有效的免鉴权静态链接
+export function normalizeXiaohongshuImageUrl(url?: string): string {
+    if (!url) {
+        return '';
+    }
+    // 剥离时间戳及 MD5 鉴权路径并升级为永久 CDN 域名
+    const tokenMatch = url.match(/^https?:\/\/([^/]+)\/\d{10,14}\/[0-9a-fA-F]{32}\/(.+)$/i);
+    if (tokenMatch) {
+        const [, host, restPath] = tokenMatch;
+        const vendorMatch = host.match(/^sns-webpic-([a-zA-Z0-9]+)\.xhscdn\.com$/i);
+        if (vendorMatch) {
+            return `https://sns-img-${vendorMatch[1]}.xhscdn.com/${restPath}`;
+        }
+        if (/^sns-webpic\.xhscdn\.com$/i.test(host) || /xiaohongshu\.com$/i.test(host)) {
+            return `https://ci.xiaohongshu.com/${restPath}`;
+        }
+        return `https://${host.replace(/^sns-webpic-/, 'sns-img-')}/${restPath}`;
+    }
+    const vendorMatch = url.match(/^https?:\/\/sns-webpic-([a-zA-Z0-9]+)\.xhscdn\.com\/(.+)$/i);
+    if (vendorMatch) {
+        return `https://sns-img-${vendorMatch[1]}.xhscdn.com/${vendorMatch[2]}`;
+    }
+    return url;
+}
+
 // 从 HTML 中提取小红书 SSR 注入的 __INITIAL_STATE__ 数据
 function extractInitialState($: CheerioAPI) {
     let script = $('script:contains("window.__INITIAL_STATE__=")').text();
@@ -158,7 +183,8 @@ export async function getFullNote(link: string, profileUrl: string, cookie: stri
                     }
                 }
 
-                const posterUrl = noteData.imageList?.[0]?.urlDefault;
+                const rawPosterUrl = noteData.imageList?.[0]?.urlDefault || noteData.imageList?.[0]?.url || noteData.imageList?.[0]?.infoList?.[0]?.url;
+                const posterUrl = normalizeXiaohongshuImageUrl(rawPosterUrl);
 
                 if (videoUrls.length > 0) {
                     mediaContent = `<video controls ${posterUrl ? `poster="${posterUrl}"` : ''}>
@@ -168,6 +194,7 @@ export async function getFullNote(link: string, profileUrl: string, cookie: stri
             } else if (noteData.imageList && noteData.imageList.length > 0) {
                 mediaContent = noteData.imageList
                     .map((image) => {
+                        const imgUrl = normalizeXiaohongshuImageUrl(image.urlDefault || image.url || image.infoList?.[0]?.url);
                         if (image.livePhoto && displayLivePhoto) {
                             const videoUrls: string[] = [];
                             const streamTypes = ['av1', 'h264', 'h265', 'h266'];
@@ -185,12 +212,12 @@ export async function getFullNote(link: string, profileUrl: string, cookie: stri
                             }
 
                             if (videoUrls.length > 0) {
-                                return `<video controls poster="${image.urlDefault}">
+                                return `<video controls poster="${imgUrl}">
                                     ${videoUrls.map((videoUrl) => `<source src="${videoUrl}" type="video/mp4">`).join('\n')}
                                 </video>`;
                             }
                         }
-                        return `<img src="${image.urlDefault}">`;
+                        return `<img src="${imgUrl}">`;
                     })
                     .join('<br>');
             }
@@ -249,7 +276,8 @@ export async function renderNotesFulltext(notes: any[], urlPrefix: string, profi
         } catch (err: any) {
             // 单篇风控或失效时平滑降级展示封面大图，不打断整个 Feed
             logger.warn(`Failed to fetch full note for ${link}: ${err.message}`);
-            const coverUrl = noteCard.cover?.infoList?.pop()?.url || '';
+            const rawCoverUrl = noteCard.cover?.infoList?.pop()?.url || noteCard.cover?.urlDefault || '';
+            const coverUrl = normalizeXiaohongshuImageUrl(rawCoverUrl);
             data.push({
                 title: noteCard.displayTitle,
                 link,

@@ -21,7 +21,7 @@ const REFERER_RULES: RefererRule[] = [
     // 微博 / 新浪图床
     { pattern: /(?:sinaimg\.cn|weibo\.cn|weibocdn\.com)$/i, referer: 'https://weibo.com/' },
     // 小红书图床
-    { pattern: /xhscdn\.com$/i, referer: 'https://www.xiaohongshu.com/' },
+    { pattern: /(?:xhscdn\.com|xiaohongshu\.com)$/i, referer: 'https://www.xiaohongshu.com/' },
     // 后续如有其它平台，直接在此追加，例如：
     // { pattern: /zhimg\.com$/i, referer: 'https://www.zhihu.com/' },
     // { pattern: /hdslb\.com$/i, referer: 'https://www.bilibili.com/' },
@@ -37,6 +37,33 @@ function getRefererForUrl(targetUrl: string): string | undefined {
     }
 }
 
+function getCandidateUrls(url: string): string[] {
+    const candidates: string[] = [];
+
+    // 处理小红书带时间戳鉴权 token 的临时链接
+    // 例如: http://sns-webpic-qc.xhscdn.com/202610081146/acdc8493c5f7e534028a454e231c6737/notes_uhdr/1040g3qo325sss0l6ke7040q1p5t79e1fk8nlgag!nd_dft_wlteh_webp_3
+    const xhsTokenMatch = url.match(/^https?:\/\/([^/]+)\/\d{10,14}\/[0-9a-fA-F]{32}\/(.+)$/i);
+    if (xhsTokenMatch) {
+        const [, host, restPath] = xhsTokenMatch;
+        const vendorMatch = host.match(/^sns-webpic-([a-zA-Z0-9]+)\.xhscdn\.com$/i);
+        if (vendorMatch) {
+            candidates.push(`https://sns-img-${vendorMatch[1]}.xhscdn.com/${restPath}`);
+        }
+        candidates.push(`https://ci.xiaohongshu.com/${restPath}`);
+    } else {
+        const vendorMatch = url.match(/^https?:\/\/sns-webpic-([a-zA-Z0-9]+)\.xhscdn\.com\/(.+)$/i);
+        if (vendorMatch) {
+            candidates.push(`https://sns-img-${vendorMatch[1]}.xhscdn.com/${vendorMatch[2]}`);
+            candidates.push(`https://ci.xiaohongshu.com/${vendorMatch[2]}`);
+        }
+    }
+
+    if (!candidates.includes(url)) {
+        candidates.push(url);
+    }
+    return candidates;
+}
+
 async function handler(ctx) {
     const targetUrl = ctx.req.query('url');
 
@@ -48,21 +75,35 @@ async function handler(ctx) {
     }
 
     try {
-        // 根据目标图片域名动态匹配 Referer
-        const matchedReferer = getRefererForUrl(targetUrl);
+        const candidateUrls = getCandidateUrls(targetUrl);
+        let upstreamResponse: Response | null = null;
 
-        const headers: Record<string, string> = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        };
-        if (matchedReferer) {
-            headers.Referer = matchedReferer;
+        for (const currentUrl of candidateUrls) {
+            const matchedReferer = getRefererForUrl(currentUrl);
+
+            const headers: Record<string, string> = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            };
+            if (matchedReferer) {
+                headers.Referer = matchedReferer;
+            }
+
+            try {
+                const res = await fetch(currentUrl, { headers });
+                if (res.ok) {
+                    upstreamResponse = res;
+                    break;
+                }
+                upstreamResponse = res;
+            } catch {
+                // 网络或解析异常时继续尝试下一个候选地址
+            }
         }
 
-        const upstreamResponse = await fetch(targetUrl, { headers });
-
-        if (!upstreamResponse.ok) {
-            return new Response(`Upstream fetch failed with status: ${upstreamResponse.status}`, {
-                status: upstreamResponse.status,
+        if (!upstreamResponse || !upstreamResponse.ok) {
+            const status = upstreamResponse?.status || 502;
+            return new Response(`Upstream fetch failed with status: ${status}`, {
+                status,
                 headers: { 'Content-Type': 'text/plain; charset=utf-8' },
             });
         }

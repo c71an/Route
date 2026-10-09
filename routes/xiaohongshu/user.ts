@@ -6,7 +6,7 @@ import { ViewType } from '@/types';
 import cache from '@/utils/cache';
 import { fallback, queryToBoolean } from '@/utils/readable-social';
 
-import { getUserWithCookie, renderNotesFulltext } from './util';
+import { getUserWithCookie, normalizeXiaohongshuImageUrl, renderNotesFulltext } from './util';
 
 export const route: Route = {
     path: '/user/:user_id/notes/:routeParams?',
@@ -59,7 +59,7 @@ async function handler(ctx) {
             return {
                 title: `${basicInfo.nickname} - 笔记 • 小红书`,
                 description: basicInfo.desc || `${basicInfo.nickname} 的小红书笔记`,
-                image: basicInfo.imageb || basicInfo.images,
+                image: normalizeXiaohongshuImageUrl(basicInfo.imageb || basicInfo.images),
                 link: url,
                 item: notes,
             };
