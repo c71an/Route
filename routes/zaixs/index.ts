@@ -84,11 +84,23 @@ async function handler(ctx) {
                 // 提取正文：首帖 HTML
                 const content = $detail('div.t_fsz table').first();
 
-                // 清洗内容 (与原逻辑保持一致)
-                // 1. 干掉所有 tip
+                // 清洗内容
+                // 1. 移除外挂样式表、内联样式与脚本，防止千帆平台样式（如 html{font-size:375%} 及 .preview_article {font-size: 0.34rem}）污染阅读器导致字号极小
+                content.find('style, link, script').remove();
+
+                // 2. 干掉所有 tip
                 content.find('div.tip, div.aimg_tip, .xs0, .tip_horn').remove();
 
-                // 2. 清洗 img 标签，确保 src 正确
+                // 3. 清理可能残留的内联 font-size 样式，保证阅读器自适应排版
+                content.find('[style*="font-size"]').each((_, el) => {
+                    const $el = $detail(el);
+                    $el.css('font-size', '');
+                    if (!$el.attr('style')) {
+                        $el.removeAttr('style');
+                    }
+                });
+
+                // 4. 清洗 img 标签，确保 src 正确
                 content.find('img').each((_, el) => {
                     const $img = $detail(el);
                     const realSrc = $img.attr('zoomfile') || $img.attr('file') || $img.attr('data-src') || $img.attr('data-original') || $img.attr('src');
