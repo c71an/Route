@@ -128,110 +128,207 @@ export async function getUserWithCookie(url: string, cookie: string) {
     return state.user;
 }
 
-// 获取单条笔记全文详情（带组图、长文与视频直链）
-export async function getFullNote(link: string, profileUrl: string, cookie: string, displayLivePhoto: boolean) {
-    // 单篇笔记内容具有极高静态稳定性，设置 7 天持久缓存（跳过历史已抓取条目，极大降低网络请求）
-    return await cache.tryGet(
-        link,
-        async () => {
-            logger.http(`Requesting XiaoHongShu Note Detail: ${link}`);
-            const res = await ofetch(link, {
-                headers: getHeaders(cookie, profileUrl), // 动态携带博主主页作为 Referer
-            });
-
-            const $ = load(res);
-            const script = extractInitialState($);
-            if (!script) {
-                throw new Error('无法提取小红书笔记详情数据');
+// 提取小红书视频链接中的 16 进制时间戳 t 参数，计算出精确的剩余有效期（秒）
+export function calculateXhsTTL(url?: string, defaultTTL = 604800): number {
+    if (!url) {
+        return defaultTTL;
+    }
+    try {
+        const urlObj = new URL(url);
+        const tHex = urlObj.searchParams.get('t');
+        if (tHex) {
+            const expireTimestamp = parseInt(tHex, 16);
+            const now = Math.floor(Date.now() / 1000);
+            const remaining = expireTimestamp - now;
+            // 预留 5 分钟安全缓冲，防止边界误差
+            const safeTTL = remaining - 300;
+            if (safeTTL > 60) {
+                return safeTTL;
             }
+        }
+    } catch (_) {}
+    return defaultTTL;
+}
 
-            const state = JSON.parse(script);
-            const noteData = state.note?.noteDetailMap?.[state.note.firstNoteId]?.note;
-            if (!noteData) {
-                throw new Error('小红书笔记数据结构为空或笔记已被删除');
+export interface NoteMediaStreams {
+    mainVideo?: string;
+    mainVideoBackups: string[];
+    livePhotos: string[];
+    posterUrl?: string;
+}
+
+export function extractNoteMedia(noteData: any): NoteMediaStreams {
+    const result: NoteMediaStreams = {
+        mainVideoBackups: [],
+        livePhotos: [],
+    };
+
+    if (noteData.type === 'video') {
+        const originVideoKey = noteData.video?.consumer?.originVideoKey;
+        if (originVideoKey) {
+            result.mainVideoBackups.push(`http://sns-video-al.xhscdn.com/${originVideoKey}`);
+        }
+
+        const streamTypes = ['h264', 'av1', 'h265', 'h266'];
+        for (const type of streamTypes) {
+            const streams = noteData.video?.media?.stream?.[type];
+            if (!streams?.length) {
+                continue;
             }
+            const stream = streams[0];
+            if (stream.masterUrl && !result.mainVideo) {
+                result.mainVideo = stream.masterUrl;
+            }
+            if (stream.backupUrls?.length) {
+                result.mainVideoBackups.push(...stream.backupUrls);
+            }
+        }
 
-            const title = noteData.title || noteData.desc;
-            let desc = noteData.desc || '';
-            desc = desc.replaceAll(/\[.*?\]/g, '');
-            desc = desc.replaceAll(/#(.*?)#/g, '#$1');
-            desc = desc.replaceAll('\n', '<br>');
-            const pubDate = parseDate(noteData.time, 'x');
-            const updated = parseDate(noteData.lastUpdateTime, 'x');
-
-            let mediaContent = '';
-            if (noteData.type === 'video') {
-                const originVideoKey = noteData.video?.consumer?.originVideoKey;
-                const videoUrls: string[] = [];
-
-                if (originVideoKey) {
-                    videoUrls.push(`http://sns-video-al.xhscdn.com/${originVideoKey}`);
-                }
-
-                const streamTypes = ['av1', 'h264', 'h265', 'h266'];
+        const rawPosterUrl = noteData.imageList?.[0]?.urlDefault || noteData.imageList?.[0]?.url || noteData.imageList?.[0]?.infoList?.[0]?.url;
+        result.posterUrl = normalizeXiaohongshuImageUrl(rawPosterUrl);
+    } else if (noteData.imageList && noteData.imageList.length > 0) {
+        for (const image of noteData.imageList) {
+            if (image.livePhoto) {
+                const streamTypes = ['h264', 'av1', 'h265', 'h266'];
+                let liveUrl = '';
                 for (const type of streamTypes) {
-                    const streams = noteData.video?.media?.stream?.[type];
+                    const streams = image.stream?.[type];
                     if (!streams?.length) {
                         continue;
                     }
-                    const stream = streams[0];
-                    if (stream.masterUrl) {
-                        videoUrls.push(stream.masterUrl);
-                    }
-                    if (stream.backupUrls?.length) {
-                        videoUrls.push(...stream.backupUrls);
+                    if (streams[0].masterUrl) {
+                        liveUrl = streams[0].masterUrl;
+                        break;
                     }
                 }
-
-                const rawPosterUrl = noteData.imageList?.[0]?.urlDefault || noteData.imageList?.[0]?.url || noteData.imageList?.[0]?.infoList?.[0]?.url;
-                const posterUrl = normalizeXiaohongshuImageUrl(rawPosterUrl);
-
-                if (videoUrls.length > 0) {
-                    mediaContent = `<video controls ${posterUrl ? `poster="${posterUrl}"` : ''}>
-                        ${videoUrls.map((videoUrl) => `<source src="${videoUrl}" type="video/mp4">`).join('\n')}
-                    </video><br>`;
-                }
-            } else if (noteData.imageList && noteData.imageList.length > 0) {
-                mediaContent = noteData.imageList
-                    .map((image) => {
-                        const imgUrl = normalizeXiaohongshuImageUrl(image.urlDefault || image.url || image.infoList?.[0]?.url);
-                        if (image.livePhoto && displayLivePhoto) {
-                            const videoUrls: string[] = [];
-                            const streamTypes = ['av1', 'h264', 'h265', 'h266'];
-                            for (const type of streamTypes) {
-                                const streams = image.stream?.[type];
-                                if (!streams?.length) {
-                                    continue;
-                                }
-                                if (streams[0].masterUrl) {
-                                    videoUrls.push(streams[0].masterUrl);
-                                }
-                                if (streams[0].backupUrls?.length) {
-                                    videoUrls.push(...streams[0].backupUrls);
-                                }
-                            }
-
-                            if (videoUrls.length > 0) {
-                                return `<video controls poster="${imgUrl}">
-                                    ${videoUrls.map((videoUrl) => `<source src="${videoUrl}" type="video/mp4">`).join('\n')}
-                                </video>`;
-                            }
-                        }
-                        return `<img src="${imgUrl}">`;
-                    })
-                    .join('<br>');
+                result.livePhotos.push(liveUrl);
             }
+        }
+    }
 
-            const description = `${mediaContent ? `${mediaContent}<br>` : ''}${desc}`;
-            return {
-                title,
-                description,
-                pubDate,
-                updated,
-            };
-        },
-        604800 // 缓存 7 天 (7 * 24 * 3600 秒)
-    );
+    return result;
+}
+
+// 单篇笔记原始详情拉取与解析
+export async function fetchNoteDetail(noteIdOrLink: string, cookie: string, profileUrl?: string) {
+    const cleanId = noteIdOrLink.match(/([0-9a-f]{24})/i)?.[1] || noteIdOrLink;
+    const link = noteIdOrLink.startsWith('http') ? noteIdOrLink : `https://www.xiaohongshu.com/explore/${cleanId}`;
+    logger.http(`Requesting XiaoHongShu Note Detail: ${link}`);
+    const res = await ofetch(link, {
+        headers: getHeaders(cookie, profileUrl),
+    });
+
+    const $ = load(res);
+    const script = extractInitialState($);
+    if (!script) {
+        throw new Error('无法提取小红书笔记详情数据，可能触发了滑块验证码或页面结构变更');
+    }
+
+    const state = JSON.parse(script);
+    const noteData = state.note?.noteDetailMap?.[state.note.firstNoteId]?.note;
+    if (!noteData) {
+        throw new Error('小红书笔记数据结构为空或笔记已被删除');
+    }
+
+    return noteData;
+}
+
+// 获取单条笔记全文详情（带组图、长文与视频直链）
+export async function getFullNote(link: string, profileUrl: string, cookie: string, displayLivePhoto: boolean, origin?: string) {
+    const cached = await cache.get(link);
+    if (cached) {
+        return cached;
+    }
+
+    const noteData = await fetchNoteDetail(link, cookie, profileUrl);
+    const cleanNoteId = link.match(/([0-9a-f]{24})/i)?.[1] || '';
+
+    const title = noteData.title || noteData.desc;
+    let desc = noteData.desc || '';
+    desc = desc.replaceAll(/\[.*?\]/g, '');
+    desc = desc.replaceAll(/#(.*?)#/g, '#$1');
+    desc = desc.replaceAll('\n', '<br>');
+    const pubDate = parseDate(noteData.time, 'x');
+    const updated = parseDate(noteData.lastUpdateTime, 'x');
+
+    const media = extractNoteMedia(noteData);
+    let mediaContent = '';
+    const collectedVideoUrls: string[] = [];
+
+    if (noteData.type === 'video') {
+        const dynamicVideoEndpoint = origin && cleanNoteId ? `${origin}/xiaohongshu/video/${cleanNoteId}/video/0` : '';
+        const posterAttr = media.posterUrl ? `poster="${media.posterUrl}"` : '';
+
+        // 如果配置了 origin，优先使用永不过期的 302 动态端点，并将当前真实有效流与备用链接存入缓存
+        if (media.mainVideo) {
+            collectedVideoUrls.push(media.mainVideo);
+            if (cleanNoteId) {
+                const ttl = calculateXhsTTL(media.mainVideo, 3600 * 24);
+                await cache.set(`xiaohongshu:video-stream:${cleanNoteId}:video:0`, media.mainVideo, ttl);
+            }
+        }
+
+        const sourceElements: string[] = [];
+        if (dynamicVideoEndpoint) {
+            sourceElements.push(`<source src="${dynamicVideoEndpoint}" type="video/mp4">`);
+        } else if (media.mainVideo) {
+            sourceElements.push(`<source src="${media.mainVideo}" type="video/mp4">`);
+        }
+        for (const backup of media.mainVideoBackups) {
+            sourceElements.push(`<source src="${backup}" type="video/mp4">`);
+        }
+
+        if (sourceElements.length > 0) {
+            mediaContent = `<video controls ${posterAttr}>\n${sourceElements.join('\n')}\n</video><br>`;
+        }
+    } else if (noteData.imageList && noteData.imageList.length > 0) {
+        let liveIndex = 0;
+        mediaContent = noteData.imageList
+            .map((image) => {
+                const imgUrl = normalizeXiaohongshuImageUrl(image.urlDefault || image.url || image.infoList?.[0]?.url);
+                if (image.livePhoto && displayLivePhoto) {
+                    const liveUrl = media.livePhotos[liveIndex] || '';
+                    if (liveUrl) {
+                        collectedVideoUrls.push(liveUrl);
+                        if (cleanNoteId) {
+                            const ttl = calculateXhsTTL(liveUrl, 3600 * 24);
+                            await cache.set(`xiaohongshu:video-stream:${cleanNoteId}:live:${liveIndex}`, liveUrl, ttl);
+                        }
+                    }
+
+                    const dynamicLiveEndpoint = origin && cleanNoteId ? `${origin}/xiaohongshu/video/${cleanNoteId}/live/${liveIndex}` : liveUrl;
+                    liveIndex++;
+
+                    if (dynamicLiveEndpoint) {
+                        return `<video data-type="livephoto" controls poster="${imgUrl}">
+                            <source src="${dynamicLiveEndpoint}" type="video/mp4">
+                        </video>`;
+                    }
+                }
+                return `<img src="${imgUrl}">`;
+            })
+            .join('<br>');
+    }
+
+    const description = `${mediaContent ? `${mediaContent}<br>` : ''}${desc}`;
+    const result = {
+        title,
+        description,
+        pubDate,
+        updated,
+    };
+
+    // 动态计算整篇笔记的缓存时间：根据所有视频 URL 中最早过期的 t 参数决定
+    let dynamicNoteTTL = 604800; // 纯图文笔记默认 7 天
+    for (const vUrl of collectedVideoUrls) {
+        const ttl = calculateXhsTTL(vUrl, 604800);
+        if (ttl < dynamicNoteTTL) {
+            dynamicNoteTTL = ttl;
+        }
+    }
+
+    await cache.set(link, result, dynamicNoteTTL);
+    return result;
 }
 
 // 从 24 位小红书笔记 ID 提取秒级发布时间戳（ObjectId 前 8 位为 Hex 时间戳）
@@ -249,7 +346,7 @@ export function getNoteTimestamp(note: any): number {
 }
 
 // 批量渲染博主笔记全文（仅抓取并输出最新的前 2 篇全文，其余笔记全部过滤不展示）
-export async function renderNotesFulltext(notes: any[], urlPrefix: string, profileUrl: string, cookie: string, displayLivePhoto: boolean) {
+export async function renderNotesFulltext(notes: any[], urlPrefix: string, profileUrl: string, cookie: string, displayLivePhoto: boolean, origin?: string) {
     const data: Array<{
         title: string;
         link: string;
@@ -266,7 +363,7 @@ export async function renderNotesFulltext(notes: any[], urlPrefix: string, profi
     // 2. 严格截取时间真正最新的前 2 篇笔记：仅抓取这 2 篇全文，其余所有历史笔记全部丢弃不输出到 Feed
     const allNotes = sortedNotes.slice(0, 2);
 
-    // 2. 硬核优化 2：采用串行处理 + 随机拟真延迟（1500ms ~ 3000ms），平滑突发流量
+    // 3. 采用串行处理 + 随机拟真延迟（1500ms ~ 3000ms），平滑突发流量
     for (let i = 0; i < allNotes.length; i++) {
         const { noteCard, id } = allNotes[i];
         const link = `${urlPrefix}/${id}`;
@@ -280,7 +377,7 @@ export async function renderNotesFulltext(notes: any[], urlPrefix: string, profi
         }
 
         try {
-            const { title, description, pubDate, updated } = await getFullNote(link, profileUrl, cookie, displayLivePhoto);
+            const { title, description, pubDate, updated } = await getFullNote(link, profileUrl, cookie, displayLivePhoto, origin);
             data.push({
                 title,
                 link,

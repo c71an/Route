@@ -29,7 +29,7 @@ export const route: Route = {
     },
     parameters: {
         user_id: '博主用户 ID，长度为 24 位字符（打开博主主页 URL 末尾的一串字符）',
-        routeParams: '额外参数，如 `displayLivePhoto=1` 时开启实况照片转换为视频显示',
+        routeParams: '额外参数；例如 `displayLivePhoto=0` 时关闭实况照片转换为视频显示（默认开启）',
     },
     description: `::: tip
 采用纯 HTTP + Cookie 高速直取方案，无需任何重型浏览器依赖。
@@ -38,8 +38,15 @@ export const route: Route = {
 
 async function handler(ctx) {
     const userId = ctx.req.param('user_id');
-    const routeParams = querystring.parse(ctx.req.param('routeParams') || '');
-    const displayLivePhoto = !!fallback(undefined, queryToBoolean(routeParams.displayLivePhoto), false);
+    let displayLivePhoto = true;
+    if (ctx.req.param('routeParams')) {
+        if (ctx.req.param('routeParams') === '0' || ctx.req.param('routeParams') === '1') {
+            displayLivePhoto = ctx.req.param('routeParams') === '1';
+        } else {
+            const routeParams = querystring.parse(ctx.req.param('routeParams'));
+            displayLivePhoto = !!fallback(undefined, queryToBoolean(routeParams.displayLivePhoto), true);
+        }
+    }
     const url = `https://www.xiaohongshu.com/user/profile/${userId}`;
     const cookie = config.xiaohongshu?.cookie || process.env.XIAOHONGSHU_COOKIE;
 
@@ -47,13 +54,17 @@ async function handler(ctx) {
         throw new Error('未检测到 XIAOHONGSHU_COOKIE！纯 HTTP 轻量模式需要配置小红书网页版 Cookie。');
     }
 
+    const host = ctx.req.header('x-forwarded-host') || ctx.req.header('host');
+    const proto = ctx.req.header('x-forwarded-proto') || 'http';
+    const origin = host ? `${proto}://${host}` : new URL(ctx.req.url).origin;
+
     // 默认缓存 2 小时，避免频繁并发访问触发小红书风控滑块与异常会话登出
     return await cache.tryGet(
         `xiaohongshu:user:${userId}:${displayLivePhoto ? '1' : '0'}`,
         async () => {
             const urlNotePrefix = 'https://www.xiaohongshu.com/explore';
             const user = await getUserWithCookie(url, cookie);
-            const notes = await renderNotesFulltext(user.notes || [], urlNotePrefix, url, cookie, displayLivePhoto);
+            const notes = await renderNotesFulltext(user.notes || [], urlNotePrefix, url, cookie, displayLivePhoto, origin);
 
             const basicInfo = user.userPageData.basicInfo;
             return {
