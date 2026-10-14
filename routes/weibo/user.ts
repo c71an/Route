@@ -164,7 +164,9 @@ async function handler(ctx) {
                     }
                 }
 
-                const formatExtended = weiboUtils.formatExtended(ctx, item.mblog, uid);
+                const formatExtended = weiboUtils.formatExtended(ctx, item.mblog, uid, {
+                    displayVideo: displayVideo === '1',
+                });
                 let description = formatExtended.description;
 
                 // 视频的处理

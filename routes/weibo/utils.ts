@@ -32,6 +32,7 @@ interface FormatExtendedParams {
     showEmojiInDescription?: boolean;
     showLinkIconInDescription?: boolean;
     preferMobileLink?: boolean;
+    displayVideo?: boolean;
 }
 
 const getDescriptionRenderParams = (routeParams, params: FormatExtendedParams = {}) => ({
@@ -248,6 +249,7 @@ const weiboUtils = {
             showEmojiInDescription: descriptionRenderParams.showEmojiInDescription,
             showLinkIconInDescription: descriptionRenderParams.showLinkIconInDescription,
             preferMobileLink: fallback(params.preferMobileLink, queryToBoolean(routeParams.preferMobileLink), false),
+            displayVideo: fallback(params.displayVideo, queryToBoolean(routeParams.displayVideo), true),
         };
 
         params = mergedParams;
@@ -268,6 +270,7 @@ const weiboUtils = {
             heightOfPics,
             sizeOfAuthorAvatar,
             preferMobileLink,
+            displayVideo,
         } = mergedParams;
 
         let retweeted = '';
@@ -331,12 +334,11 @@ const weiboUtils = {
             }
         }
 
-        // drop live photo
         const livePhotoCount = status.pics ? status.pics.filter((pic) => pic.type === 'livephoto').length : 0;
-        const pics = status.pics && status.pics.filter((pic) => pic.type !== 'livephoto');
+        const pics = status.pics;
 
         // 添加微博配图
-        if (pics) {
+        if (pics && pics.length > 0) {
             if (readable) {
                 html += '<br clear="both" /><div style="clear: both"></div>';
             }
@@ -345,38 +347,50 @@ const weiboUtils = {
             // 让所有配图在description的最前面再次出现一次，但宽高设为0
             let picsPrefix = '';
             for (const item of pics) {
-                picsPrefix += `<img width="0" height="0" hidden="true" src="${item.large.url}">`;
+                const imgUrl = item.large?.url || item.url;
+                if (imgUrl) {
+                    picsPrefix += `<img width="0" height="0" hidden="true" src="${imgUrl}">`;
+                }
             }
             picsPrefixes.push(picsPrefix);
 
             for (const item of pics) {
-                if (addLinkForPics) {
-                    html += '<a href="' + item.large.url + '">';
-                }
-
-                let style = '';
-                html += '<img ';
-                html += readable ? 'vspace="8" hspace="4"' : '';
-                if (item.large) {
-                    const { geo, url } = item.large;
-
-                    if (geo?.width || widthOfPics >= 0) {
-                        const width = geo?.width || widthOfPics;
-                        html += ` width="${width}"`;
-                        style += `width: ${width}px;`;
+                const isLivePhoto = item.type === 'livephoto' && item.videoSrc;
+                if (isLivePhoto && displayVideo) {
+                    const posterUrl = (item.large && item.large.url) || item.url || '';
+                    html += `<video controls="controls" poster="${posterUrl}" src="${item.videoSrc}" style="width: 100%"></video>`;
+                } else {
+                    const imgUrl = (item.large && item.large.url) || item.url;
+                    if (addLinkForPics && imgUrl) {
+                        html += '<a href="' + imgUrl + '">';
                     }
 
-                    if (geo?.height || heightOfPics >= 0) {
-                        const height = geo?.height || heightOfPics;
-                        html += ` height="${height}"`;
-                        style += `height: ${height}px;`;
+                    let style = '';
+                    html += '<img ';
+                    html += readable ? 'vspace="8" hspace="4"' : '';
+                    if (item.large) {
+                        const { geo, url } = item.large;
+
+                        if (geo?.width || widthOfPics >= 0) {
+                            const width = geo?.width || widthOfPics;
+                            html += ` width="${width}"`;
+                            style += `width: ${width}px;`;
+                        }
+
+                        if (geo?.height || heightOfPics >= 0) {
+                            const height = geo?.height || heightOfPics;
+                            html += ` height="${height}"`;
+                            style += `height: ${height}px;`;
+                        }
+
+                        html += ` style="${style}" src="${url}">`;
+                    } else if (item.url) {
+                        html += ` src="${item.url}">`;
                     }
 
-                    html += ` style="${style}" src="${url}">`;
-                }
-
-                if (addLinkForPics) {
-                    html += '</a>';
+                    if (addLinkForPics && imgUrl) {
+                        html += '</a>';
+                    }
                 }
 
                 htmlNewlineUnreplaced += '<img src="" />';
@@ -473,15 +487,8 @@ const weiboUtils = {
         }),
     formatVideo: (itemDesc, status) => {
         const pageInfo = status.page_info;
-        const livePhotos = status.pics && status.pics.filter((pic) => pic.type === 'livephoto' && pic.videoSrc);
         let video = '<br clear="both" /><div style="clear: both"></div>';
         let anyVideo = false;
-        if (livePhotos) {
-            for (const livePhoto of livePhotos) {
-                video += `<video controls="controls" poster="${(livePhoto.large && livePhoto.large.url) || livePhoto.url}" src="${livePhoto.videoSrc}" style="width: 100%"></video>`;
-                anyVideo = true;
-            }
-        }
         if (pageInfo && pageInfo.type === 'video') {
             const pagePic = pageInfo.page_pic;
             const posterUrl = pagePic ? pagePic.url : '';
