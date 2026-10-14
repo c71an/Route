@@ -102,7 +102,18 @@ async function handler(ctx) {
                     }
                 });
 
-                const contentHtml = content.html() ?? '';
+                // 3. 彻底移除 style, script, link, meta 标签，防止污染下游阅读器全局样式（如千帆系统的 html{font-size:375%}、外部 style.css）或引入安全隐患
+                content.find('style, script, link, meta').remove();
+
+                let contentHtml = content.html() ?? '';
+                // 字符串级兜底正则清洗与清除 HTML 冗余注释
+                contentHtml = contentHtml
+                    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+                    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+                    .replace(/<link\b[^>]*>/gi, '')
+                    .replace(/<meta\b[^>]*>/gi, '')
+                    .replace(/<!--[\s\S]*?-->/g, '')
+                    .trim();
 
                 return {
                     title,
