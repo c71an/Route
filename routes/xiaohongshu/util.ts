@@ -283,31 +283,32 @@ export async function getFullNote(link: string, profileUrl: string, cookie: stri
         }
     } else if (noteData.imageList && noteData.imageList.length > 0) {
         let liveIndex = 0;
-        mediaContent = noteData.imageList
-            .map((image) => {
-                const imgUrl = normalizeXiaohongshuImageUrl(image.urlDefault || image.url || image.infoList?.[0]?.url);
-                if (image.livePhoto && displayLivePhoto) {
-                    const liveUrl = media.livePhotos[liveIndex] || '';
-                    if (liveUrl) {
-                        collectedVideoUrls.push(liveUrl);
-                        if (cleanNoteId) {
-                            const ttl = calculateXhsTTL(liveUrl, 3600 * 24);
-                            await cache.set(`xiaohongshu:video-stream:${cleanNoteId}:live:${liveIndex}`, liveUrl, ttl);
-                        }
-                    }
-
-                    const dynamicLiveEndpoint = origin && cleanNoteId ? `${origin}/xiaohongshu/video/${cleanNoteId}/live/${liveIndex}` : liveUrl;
-                    liveIndex++;
-
-                    if (dynamicLiveEndpoint) {
-                        return `<video data-type="livephoto" controls poster="${imgUrl}">
-                            <source src="${dynamicLiveEndpoint}" type="video/mp4">
-                        </video>`;
+        const mediaParts: string[] = [];
+        for (const image of noteData.imageList) {
+            const imgUrl = normalizeXiaohongshuImageUrl(image.urlDefault || image.url || image.infoList?.[0]?.url);
+            if (image.livePhoto && displayLivePhoto) {
+                const liveUrl = media.livePhotos[liveIndex] || '';
+                if (liveUrl) {
+                    collectedVideoUrls.push(liveUrl);
+                    if (cleanNoteId) {
+                        const ttl = calculateXhsTTL(liveUrl, 3600 * 24);
+                        await cache.set(`xiaohongshu:video-stream:${cleanNoteId}:live:${liveIndex}`, liveUrl, ttl);
                     }
                 }
-                return `<img src="${imgUrl}">`;
-            })
-            .join('<br>');
+
+                const dynamicLiveEndpoint = origin && cleanNoteId ? `${origin}/xiaohongshu/video/${cleanNoteId}/live/${liveIndex}` : liveUrl;
+                liveIndex++;
+
+                if (dynamicLiveEndpoint) {
+                    mediaParts.push(`<video data-type="livephoto" controls poster="${imgUrl}">
+                        <source src="${dynamicLiveEndpoint}" type="video/mp4">
+                    </video>`);
+                    continue;
+                }
+            }
+            mediaParts.push(`<img src="${imgUrl}">`);
+        }
+        mediaContent = mediaParts.join('<br>');
     }
 
     const description = `${mediaContent ? `${mediaContent}<br>` : ''}${desc}`;
