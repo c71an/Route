@@ -218,7 +218,10 @@ const weiboUtils = {
         html
             .replaceAll(/<span class=["']url-icon["']><img\s[^>]*?alt=["']?([^>\s"']+)["']?\s[^>]*?\/?><\/span>/g, '$1') // 表情转换
             .replaceAll(/<span class=["']url-icon["']>(<img\s[^>]*>)<\/span>/g, '') // 去掉所有图标
+            .replaceAll(/<video\s[^>]*data-type=["']livephoto["'][^>]*>[\s\S]*?<\/video>/gi, '[Live Photo]')
+            .replaceAll(/<img\s[^>]*data-type=["']livephoto["'][^>]*>/gi, '[Live Photo]')
             .replaceAll(/<img\s[^<]*>/g, '[图片]')
+            .replaceAll(/<video\s[^<]*>[\s\S]*?<\/video>/gi, '[视频]')
             // impossible to have inline script in weibo posts, but CodeQL complains about it
             // Dismiss it through the UI: https://github.com/github/codeql/issues/11427
             .replaceAll(/<[^<]*>/g, '')
@@ -355,10 +358,10 @@ const weiboUtils = {
             picsPrefixes.push(picsPrefix);
 
             for (const item of pics) {
-                const isLivePhoto = item.type === 'livephoto' && item.videoSrc;
-                if (isLivePhoto && displayVideo) {
+                const isLivePhoto = item.type === 'livephoto';
+                if (isLivePhoto && displayVideo && item.videoSrc) {
                     const posterUrl = (item.large && item.large.url) || item.url || '';
-                    html += `<video controls="controls" poster="${posterUrl}" src="${item.videoSrc}" style="width: 100%"></video>`;
+                    html += `<video data-type="livephoto" controls="controls" poster="${posterUrl}" src="${item.videoSrc}" style="width: 100%"></video>`;
                 } else {
                     const imgUrl = (item.large && item.large.url) || item.url;
                     if (addLinkForPics && imgUrl) {
@@ -367,6 +370,9 @@ const weiboUtils = {
 
                     let style = '';
                     html += '<img ';
+                    if (isLivePhoto) {
+                        html += 'data-type="livephoto" ';
+                    }
                     html += readable ? 'vspace="8" hspace="4"' : '';
                     if (item.large) {
                         const { geo, url } = item.large;
@@ -393,7 +399,11 @@ const weiboUtils = {
                     }
                 }
 
-                htmlNewlineUnreplaced += '<img src="" />';
+                if (isLivePhoto) {
+                    htmlNewlineUnreplaced += '[Live Photo]';
+                } else {
+                    htmlNewlineUnreplaced += '<img src="" />';
+                }
             }
         }
 
@@ -448,10 +458,6 @@ const weiboUtils = {
         if (status.retweeted_status) {
             title += showEmojiForRetweet ? '🔁 ' : ' - 转发 ';
             title += weiboUtils.formatTitle(retweeted);
-        }
-        if (livePhotoCount > 0) {
-            title += ' ';
-            title += Array.from({ length: livePhotoCount + 1 }).join('[Live Photo]');
         }
         if (status.page_info && status.page_info === 'video') {
             title += ' [视频]';
