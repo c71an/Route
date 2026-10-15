@@ -279,7 +279,7 @@ export async function getFullNote(link: string, profileUrl: string, cookie: stri
         }
 
         if (sourceElements.length > 0) {
-            mediaContent = `<video controls ${posterAttr}>\n${sourceElements.join('\n')}\n</video><br>`;
+            mediaContent = `<video controls ${posterAttr}>\n${sourceElements.join('\n')}\n</video>`;
         }
     } else if (noteData.imageList && noteData.imageList.length > 0) {
         let liveIndex = 0;
@@ -308,10 +308,10 @@ export async function getFullNote(link: string, profileUrl: string, cookie: stri
             }
             mediaParts.push(`<img src="${imgUrl}">`);
         }
-        mediaContent = mediaParts.join('<br>');
+        mediaContent = mediaParts.join('');
     }
 
-    const description = `${mediaContent ? `${mediaContent}<br>` : ''}${desc}`;
+    const description = mediaContent ? (desc ? `${mediaContent}<br>${desc}` : mediaContent) : desc;
     const result = {
         title,
         description,
