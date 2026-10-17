@@ -49,9 +49,10 @@ COPY ./routes/ /app/lib/routes/
 # 4. 调整防盗链逻辑：HOTLINK_TEMPLATE 仅对图片代理，对视频不代理
 RUN sed -i 's/multimediaHotlinkTemplate = filterPath(ctx.req.path) ? config.hotlink.template : undefined;/multimediaHotlinkTemplate = undefined;/g' /app/lib/middleware/anti-hotlink.ts
 
-# 环境变量：彻底跳过 Playwright 内置浏览器二进制下载
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV USE_CHINA_NPM_REGISTRY=0
+# 环境变量：彻底跳过 Playwright 内置浏览器二进制下载，限制并发构建线程数
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    USE_CHINA_NPM_REGISTRY=0 \
+    RAYON_NUM_THREADS=4
 
 # 5. 彻底移除未使用的 playwright / puppeteer 依赖包，大幅缩减依赖体积
 RUN pnpm remove playwright puppeteer @playwright/test --ignore-scripts || true
