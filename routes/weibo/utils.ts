@@ -484,14 +484,14 @@ const weiboUtils = {
             const link = `https://m.weibo.cn/statuses/show?id=${bid}`;
             const itemResponse = await got.get(link, {
                 headers: {
-                    Referer: `https://m.weibo.cn/u/${uid}`,
+                    Referer: uid ? `https://m.weibo.cn/u/${uid}` : 'https://m.weibo.cn/',
                     Cookie: cookies,
                     ...weiboUtils.apiHeaders,
                 },
             });
             return itemResponse.data?.data;
         }),
-    formatVideo: (itemDesc, status) => {
+    formatVideo: (itemDesc, status, origin?: string) => {
         const pageInfo = status.page_info;
         let video = '<br clear="both" /><div style="clear: both"></div>';
         let anyVideo = false;
@@ -510,17 +510,34 @@ const weiboUtils = {
             const hasVideo = video720p || videoHd || videoHdHevc || videoLd;
 
             if (hasVideo) {
+                const weiboId = status.id_str || status.id || status.bid;
+                const dynamicVideoEndpoint = origin && weiboId ? `${origin}/weibo/video/${weiboId}` : '';
+
+                // 如果存在直链且拿到 weiboId，预热写入自适应缓存供 302 端点秒开
+                if (weiboId) {
+                    if (video720p) {
+                        const ttl = calculateWeiboTTL(video720p, 86400);
+                        cache.set(`weibo:video-stream:${weiboId}:720p`, video720p, ttl);
+                    }
+                    if (videoHd) {
+                        const ttl = calculateWeiboTTL(videoHd, 86400);
+                        cache.set(`weibo:video-stream:${weiboId}:hd`, videoHd, ttl);
+                    }
+                }
+
                 video += `<video controls="controls" poster="${posterUrl}" style="width: 100%">`;
-                if (video720p) {
+                if (dynamicVideoEndpoint) {
+                    video += `<source src="${dynamicVideoEndpoint}" type="video/mp4">`;
+                } else if (video720p) {
                     video += `<source src="${video720p}">`;
                 }
-                if (videoHd) {
+                if (videoHd && !dynamicVideoEndpoint) {
                     video += `<source src="${videoHd}">`;
                 }
-                if (videoHdHevc) {
+                if (videoHdHevc && !dynamicVideoEndpoint) {
                     video += `<source src="${videoHdHevc}">`;
                 }
-                if (videoLd) {
+                if (videoLd && !dynamicVideoEndpoint) {
                     video += `<source src="${videoLd}">`;
                 }
                 if (pageUrl) {
@@ -731,5 +748,27 @@ const weiboUtils = {
         };
     })(),
 };
+
+/**
+ * 从微博视频链接提取 Expires 鉴权时间戳，计算精确剩余有效期
+ */
+export function calculateWeiboTTL(url?: string, defaultTTL = 86400): number {
+    if (!url) {
+        return defaultTTL;
+    }
+    try {
+        const urlObj = new URL(url);
+        const expiresStr = urlObj.searchParams.get('Expires') || urlObj.searchParams.get('expires');
+        if (expiresStr) {
+            const expireTimestamp = parseInt(expiresStr, 10);
+            const remaining = expireTimestamp - Math.floor(Date.now() / 1000);
+            const safeTTL = remaining - 300; // 预留 5 分钟安全缓冲
+            if (safeTTL > 60) {
+                return safeTTL;
+            }
+        }
+    } catch (_) {}
+    return defaultTTL;
+}
 
 export default weiboUtils;

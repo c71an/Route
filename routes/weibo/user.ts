@@ -55,6 +55,10 @@ export const route: Route = {
 
 async function handler(ctx) {
     const uid = ctx.req.param('uid');
+    const host = ctx.req.header('x-forwarded-host') || ctx.req.header('host');
+    const proto = ctx.req.header('x-forwarded-proto') || 'http';
+    const origin = host ? `${proto}://${host}` : new URL(ctx.req.url).origin;
+
     let displayVideo = '1';
     let displayArticle = '0';
     let displayComments = '0';
@@ -172,7 +176,7 @@ async function handler(ctx) {
                 // 视频的处理
                 if (displayVideo === '1') {
                     // 含被转发微博时需要从被转发微博中获取视频
-                    description = retweeted_status ? weiboUtils.formatVideo(description, retweeted_status) : weiboUtils.formatVideo(description, item.mblog);
+                    description = retweeted_status ? weiboUtils.formatVideo(description, retweeted_status, origin) : weiboUtils.formatVideo(description, item.mblog, origin);
                 }
 
                 // 评论的处理
