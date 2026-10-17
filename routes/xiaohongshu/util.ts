@@ -362,7 +362,7 @@ export function getNoteTimestamp(note: any): number {
     return 0;
 }
 
-// 批量渲染博主笔记全文（仅抓取并输出最新的前 2 篇全文，其余笔记全部过滤不展示）
+// 批量渲染博主笔记全文（仅抓取并输出最新的前 3 篇全文，其余笔记全部过滤不展示）
 export async function renderNotesFulltext(notes: any[], urlPrefix: string, profileUrl: string, cookie: string, displayLivePhoto: boolean, origin?: string) {
     const data: Array<{
         title: string;
@@ -377,8 +377,8 @@ export async function renderNotesFulltext(notes: any[], urlPrefix: string, profi
     // 1. 先按底层 ObjectId 真实发布时间戳进行绝对倒序（置顶的陈年老笔记会被自然排到后面）
     const sortedNotes = [...notes.flat()].sort((a, b) => getNoteTimestamp(b) - getNoteTimestamp(a));
 
-    // 2. 严格截取时间真正最新的前 2 篇笔记：仅抓取这 2 篇全文，其余所有历史笔记全部丢弃不输出到 Feed
-    const allNotes = sortedNotes.slice(0, 2);
+    // 2. 严格截取时间真正最新的前 3 篇笔记：仅抓取这 3 篇全文，其余所有历史笔记全部丢弃不输出到 Feed
+    const allNotes = sortedNotes.slice(0, 3);
 
     // 3. 采用串行处理 + 随机拟真延迟（1500ms ~ 3000ms），平滑突发流量
     for (let i = 0; i < allNotes.length; i++) {
