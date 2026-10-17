@@ -76,7 +76,7 @@ RUN pnpm add @vercel/nft fs-extra --save-prod && \
 FROM node:24-trixie-slim AS runner
 
 LABEL maintainer="c71an"
-LABEL description="Minimal Custom RSSHub Docker Image (linux/amd64, linux/arm64)"
+LABEL description="Minimal Custom RSSHub Docker Image (linux/arm64)"
 
 ENV NODE_ENV=production \
     TZ=Asia/Shanghai \

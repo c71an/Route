@@ -3,7 +3,7 @@
 轻量级私有定制版 RSSHub 镜像。基于上游最新核心，剔除全部无关冗余路由与重型浏览器（Chromium/Playwright）依赖，仅注入本项目自定义路由，并通过 `@vercel/nft` 深度摇树压缩。
 
 - ⚡ **极致轻量**：镜像体积压缩至 ~90MB，内存占用极低。
-- 🌍 **多架构支持**：GitHub Actions 自动构建并发布 `linux/amd64` 与 `linux/arm64`。
+- 🌍 **架构支持**：GitHub Actions 自动构建并发布 `linux/arm64`。
 
 ---
 
@@ -48,7 +48,7 @@ services:
 ## 🛠️ 本地开发与添加路由
 
 ```text
-├── .github/workflows/docker-build.yml   # 自动编译发布工作流 (amd64 / arm64)
+├── .github/workflows/docker-build.yml   # 自动编译发布工作流 (arm64)
 ├── routes/                              # 自定义路由目录
 │   ├── weibo/                          # 微博路由与防频刷工具
 │   └── ...                             # 其他私有路由 (7kid, chinacdc, gov 等)

@@ -28,7 +28,7 @@ env:
 
 jobs:
   build:
-    name: Build & Push Multi-Arch Docker Image (linux/amd64, linux/arm64)
+    name: Build & Push Docker Image (linux/arm64)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -41,7 +41,7 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
         with:
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -74,13 +74,13 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
             type=sha,format=short,prefix=sha-
 
-      - name: Build and push Multi-Arch Docker image
+      - name: Build and push Docker image
         id: docker_build
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
           push: ${{ github.event_name != 'workflow_dispatch' || inputs.push_image == true }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -104,8 +104,8 @@ jobs:
       - name: Build Summary
         if: always()
         run: |
-          echo "### 🚀 Multi-Arch RSSHub Image Build Completed!" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 RSSHub Image Build Completed!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Platforms:** \`linux/amd64\`, \`linux/arm64\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platforms:** \`linux/arm64\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Tags:** \`${{ steps.meta.outputs.tags }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Upstream Ref:** \`${{ inputs.upstream_ref || 'master' }}\`" >> $GITHUB_STEP_SUMMARY
