@@ -314,11 +314,37 @@ const weiboUtils = {
             html = usernameAndAvatar + html;
         }
 
-        // status.pics can be either an array or an object:
-        // array: [ object, object, ... ]
-        // object: { '0': object, '1': object, ... }  // REALLY AMAZING data structure
         if (status.pics && !Array.isArray(status.pics)) {
             status.pics = Object.values(status.pics);
+        }
+
+        // 如果 status.pics 不存在但有 mix_media_info.items（多媒体混发），统一归一化为 pics
+        if ((!status.pics || status.pics.length === 0) && status.mix_media_info?.items) {
+            status.pics = status.mix_media_info.items.map((it: any) => {
+                if (it.type === 'video') {
+                    return {
+                        type: 'video',
+                        large: it.data?.page_pic || { url: it.data?.page_pic?.url },
+                        url: it.data?.page_pic?.url,
+                        videoSrc: it.data?.media_info?.mp4_hd_url || it.data?.media_info?.stream_url_hd || it.data?.media_info?.stream_url || '',
+                        ...it.data,
+                    };
+                }
+                return {
+                    ...it.data,
+                    large: it.data?.largest || it.data?.large,
+                    url: it.data?.url || it.data?.large?.url,
+                };
+            });
+        }
+
+        let origin = '';
+        try {
+            const host = ctx?.req?.header?.('x-forwarded-host') || ctx?.req?.header?.('host');
+            const proto = ctx?.req?.header?.('x-forwarded-proto') || 'http';
+            origin = host ? `${proto}://${host}` : (ctx?.req?.url ? new URL(ctx.req.url).origin : '');
+        } catch {
+            origin = '';
         }
 
         // 添加文章头图，此处不需要回落到被转发的微博，后续处理被转发的微博时，还会执行到这里
@@ -359,9 +385,29 @@ const weiboUtils = {
 
             for (const item of pics) {
                 const isLivePhoto = item.type === 'livephoto';
+                const isVideo = item.type === 'video';
                 if (isLivePhoto && displayVideo && item.videoSrc) {
                     const posterUrl = (item.large && item.large.url) || item.url || '';
                     html += `<video data-type="livephoto" controls="controls" poster="${posterUrl}" src="${item.videoSrc}" referrerpolicy="no-referrer" style="width: 100%"></video>`;
+                } else if (isVideo && displayVideo) {
+                    const posterUrl = (item.large && item.large.url) || item.url || '';
+                    const videoStreamUrl = item.videoSrc || (status.page_info?.type === 'video' ? (status.page_info.urls?.mp4_720p_mp4 || status.page_info.media_info?.mp4_720p_mp4 || status.page_info.media_info?.stream_url_hd || status.page_info.media_info?.stream_url) : '');
+                    const weiboId = status.id_str || status.id || status.bid;
+                    const dynamicVideoEndpoint = origin && weiboId ? `${origin}/weibo/video/${weiboId}` : '';
+
+                    if (weiboId && videoStreamUrl) {
+                        const ttl = calculateWeiboTTL(videoStreamUrl, 86400);
+                        cache.set(`weibo:video-stream:${weiboId}:720p`, videoStreamUrl, ttl);
+                    }
+
+                    const videoSrcAttr = dynamicVideoEndpoint ? `src="${dynamicVideoEndpoint}"` : (videoStreamUrl ? `src="${videoStreamUrl}"` : '');
+                    html += `<video controls="controls" poster="${posterUrl}" ${videoSrcAttr} referrerpolicy="no-referrer" style="width: 100%">`;
+                    if (dynamicVideoEndpoint) {
+                        html += `<source src="${dynamicVideoEndpoint}" type="video/mp4">`;
+                    } else if (videoStreamUrl) {
+                        html += `<source src="${videoStreamUrl}">`;
+                    }
+                    html += '</video>';
                 } else {
                     const imgUrl = (item.large && item.large.url) || item.url;
                     if (addLinkForPics && imgUrl) {
@@ -401,6 +447,8 @@ const weiboUtils = {
 
                 if (isLivePhoto) {
                     htmlNewlineUnreplaced += '[Live Photo]';
+                } else if (isVideo) {
+                    htmlNewlineUnreplaced += '[视频]';
                 } else {
                     htmlNewlineUnreplaced += '<img src="" />';
                 }
@@ -459,8 +507,11 @@ const weiboUtils = {
             title += showEmojiForRetweet ? '🔁 ' : ' - 转发 ';
             title += weiboUtils.formatTitle(retweeted);
         }
-        if (status.page_info && status.page_info === 'video') {
-            title += ' [视频]';
+        if (status.page_info && status.page_info.type === 'video') {
+            const hasVideoInPics = status.pics && status.pics.some((pic) => pic.type === 'video');
+            if (!hasVideoInPics) {
+                title += ' [视频]';
+            }
         }
 
         uid ||= status.user?.id;
@@ -492,6 +543,12 @@ const weiboUtils = {
             return itemResponse.data?.data;
         }),
     formatVideo: (itemDesc, status, origin?: string) => {
+        // 如果 status.pics 中已经包含了 video，说明已经在 formatExtended 中按原博顺序内联渲染，无需在正文末尾再次追加
+        const hasVideoInPics = status.pics && status.pics.some((pic) => pic.type === 'video');
+        if (hasVideoInPics) {
+            return itemDesc;
+        }
+
         const pageInfo = status.page_info;
         let video = '<br clear="both" /><div style="clear: both"></div>';
         let anyVideo = false;
