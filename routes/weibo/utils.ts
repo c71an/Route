@@ -361,7 +361,7 @@ const weiboUtils = {
                 const isLivePhoto = item.type === 'livephoto';
                 if (isLivePhoto && displayVideo && item.videoSrc) {
                     const posterUrl = (item.large && item.large.url) || item.url || '';
-                    html += `<video data-type="livephoto" controls="controls" poster="${posterUrl}" src="${item.videoSrc}" style="width: 100%"></video>`;
+                    html += `<video data-type="livephoto" controls="controls" poster="${posterUrl}" src="${item.videoSrc}" referrerpolicy="no-referrer" style="width: 100%"></video>`;
                 } else {
                     const imgUrl = (item.large && item.large.url) || item.url;
                     if (addLinkForPics && imgUrl) {
@@ -525,7 +525,8 @@ const weiboUtils = {
                     }
                 }
 
-                video += `<video controls="controls" poster="${posterUrl}" style="width: 100%">`;
+                const videoSrcAttr = dynamicVideoEndpoint ? `src="${dynamicVideoEndpoint}"` : '';
+                video += `<video controls="controls" poster="${posterUrl}" ${videoSrcAttr} referrerpolicy="no-referrer" style="width: 100%">`;
                 if (dynamicVideoEndpoint) {
                     video += `<source src="${dynamicVideoEndpoint}" type="video/mp4">`;
                 } else if (video720p) {
@@ -539,9 +540,6 @@ const weiboUtils = {
                 }
                 if (videoLd && !dynamicVideoEndpoint) {
                     video += `<source src="${videoLd}">`;
-                }
-                if (pageUrl) {
-                    video += `<p>视频无法显示，请前往<a href="${pageUrl}" target="_blank" rel="noopener noreferrer">微博视频</a>观看。</p>`;
                 }
                 video += '</video>';
                 anyVideo = true;
