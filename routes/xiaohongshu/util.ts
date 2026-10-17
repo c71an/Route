@@ -209,28 +209,44 @@ export function extractNoteMedia(noteData: any): NoteMediaStreams {
     return result;
 }
 
-// 单篇笔记原始详情拉取与解析
-export async function fetchNoteDetail(noteIdOrLink: string, cookie: string, profileUrl?: string) {
+// 记录正在进行中的单篇笔记抓取 Promise，防止高并发下重复回源击穿小红书
+const inFlightNoteRequests = new Map<string, Promise<any>>();
+
+// 单篇笔记原始详情拉取与解析（内置 Singleflight 防并发重复拉取机制）
+export function fetchNoteDetail(noteIdOrLink: string, cookie: string, profileUrl?: string): Promise<any> {
     const cleanId = noteIdOrLink.match(/([0-9a-f]{24})/i)?.[1] || noteIdOrLink;
-    const link = noteIdOrLink.startsWith('http') ? noteIdOrLink : `https://www.xiaohongshu.com/explore/${cleanId}`;
-    logger.http(`Requesting XiaoHongShu Note Detail: ${link}`);
-    const res = await ofetch(link, {
-        headers: getHeaders(cookie, profileUrl),
+
+    if (inFlightNoteRequests.has(cleanId)) {
+        logger.http(`XiaoHongShu Note Detail deduplicated for cleanId: ${cleanId}`);
+        return inFlightNoteRequests.get(cleanId)!;
+    }
+
+    const promise = (async () => {
+        const link = noteIdOrLink.startsWith('http') ? noteIdOrLink : `https://www.xiaohongshu.com/explore/${cleanId}`;
+        logger.http(`Requesting XiaoHongShu Note Detail: ${link}`);
+        const res = await ofetch(link, {
+            headers: getHeaders(cookie, profileUrl),
+        });
+
+        const $ = load(res);
+        const script = extractInitialState($);
+        if (!script) {
+            throw new Error('无法提取小红书笔记详情数据，可能触发了滑块验证码或页面结构变更');
+        }
+
+        const state = JSON.parse(script);
+        const noteData = state.note?.noteDetailMap?.[state.note.firstNoteId]?.note;
+        if (!noteData) {
+            throw new Error('小红书笔记数据结构为空或笔记已被删除');
+        }
+
+        return noteData;
+    })().finally(() => {
+        inFlightNoteRequests.delete(cleanId);
     });
 
-    const $ = load(res);
-    const script = extractInitialState($);
-    if (!script) {
-        throw new Error('无法提取小红书笔记详情数据，可能触发了滑块验证码或页面结构变更');
-    }
-
-    const state = JSON.parse(script);
-    const noteData = state.note?.noteDetailMap?.[state.note.firstNoteId]?.note;
-    if (!noteData) {
-        throw new Error('小红书笔记数据结构为空或笔记已被删除');
-    }
-
-    return noteData;
+    inFlightNoteRequests.set(cleanId, promise);
+    return promise;
 }
 
 // 获取单条笔记全文详情（带组图、长文与视频直链）

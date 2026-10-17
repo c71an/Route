@@ -36,6 +36,24 @@ async function handler(ctx) {
         const noteData = await fetchNoteDetail(cleanNoteId, cookie);
         const media = extractNoteMedia(noteData);
 
+        // 批量预热写入：顺手把这篇笔记的所有实况图和主视频全部写入缓存，供后续请求秒开
+        if (cleanNoteId) {
+            const cacheTasks: Promise<any>[] = [];
+            media.livePhotos.forEach((liveUrl, idx) => {
+                if (liveUrl) {
+                    const lTtl = calculateXhsTTL(liveUrl, 3600 * 24);
+                    cacheTasks.push(cache.set(`xiaohongshu:video-stream:${cleanNoteId}:live:${idx}`, liveUrl, lTtl));
+                }
+            });
+
+            const mainVideo = media.mainVideo || media.mainVideoBackups[0];
+            if (mainVideo) {
+                const vTtl = calculateXhsTTL(mainVideo, 3600 * 24);
+                cacheTasks.push(cache.set(`xiaohongshu:video-stream:${cleanNoteId}:video:0`, mainVideo, vTtl));
+            }
+            await Promise.all(cacheTasks);
+        }
+
         let targetUrl = '';
         if (type === 'live') {
             targetUrl = media.livePhotos[index] || '';
@@ -44,8 +62,6 @@ async function handler(ctx) {
         }
 
         if (targetUrl) {
-            const ttl = calculateXhsTTL(targetUrl, 3600 * 24);
-            await cache.set(cacheKey, targetUrl, ttl);
             return ctx.redirect(targetUrl, 302);
         }
 
