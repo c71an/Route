@@ -14,6 +14,75 @@ export const route: Route = {
     description: '为微博视频提供伪装 Referer 的零拷贝流式转发与自适应缓存服务，彻底解决 403 防盗链与过期问题',
 };
 
+// 记录正在进行中的视频直链解析 Promise，防止播放器多个 Range 请求并发击穿微博
+const inFlightWeiboVideoRequests = new Map<string, Promise<string>>();
+
+async function resolveWeiboVideo(cleanId: string, quality: string): Promise<string> {
+    const flightKey = `${cleanId}:${quality}`;
+    if (inFlightWeiboVideoRequests.has(flightKey)) {
+        return inFlightWeiboVideoRequests.get(flightKey)!;
+    }
+
+    const promise = (async () => {
+        const cacheKey = `weibo:video-stream:${cleanId}:${quality}`;
+        const cachedUrl = (await cache.get(cacheKey)) as string | undefined;
+        if (cachedUrl) {
+            return cachedUrl;
+        }
+
+        const data = await weiboUtils.getShowData('', cleanId);
+        const pageInfo = data?.page_info?.type === 'video' ? data.page_info : data?.retweeted_status?.page_info;
+
+        if (!pageInfo || pageInfo.type !== 'video') {
+            // 负缓存：写入 5 分钟空标记，防止无视频微博被客户端高频重复打向微博
+            await cache.set(cacheKey, '__NOT_FOUND__', 300);
+            return '';
+        }
+
+        const urls = pageInfo.urls || {};
+        const mediaInfo = pageInfo.media_info || {};
+
+        const video720p = urls.mp4_720p_mp4 || mediaInfo.mp4_720p_mp4 || urls.mp4_hd_mp4 || mediaInfo.mp4_hd_url || mediaInfo.stream_url_hd || '';
+        const videoHd = urls.mp4_hd_mp4 || mediaInfo.mp4_hd_url || mediaInfo.stream_url_hd || urls.mp4_720p_mp4 || mediaInfo.mp4_720p_mp4 || '';
+        const videoLd = urls.mp4_ld_mp4 || mediaInfo.mp4_sd_url || mediaInfo.stream_url || '';
+
+        // 批量预热写入全清晰度缓存
+        if (video720p) {
+            const ttl = calculateWeiboTTL(video720p, 86400);
+            cache.set(`weibo:video-stream:${cleanId}:720p`, video720p, ttl);
+        }
+        if (videoHd) {
+            const ttl = calculateWeiboTTL(videoHd, 86400);
+            cache.set(`weibo:video-stream:${cleanId}:hd`, videoHd, ttl);
+        }
+        if (videoLd) {
+            const ttl = calculateWeiboTTL(videoLd, 86400);
+            cache.set(`weibo:video-stream:${cleanId}:ld`, videoLd, ttl);
+        }
+
+        let resolvedUrl = '';
+        if (quality === '720p') {
+            resolvedUrl = video720p;
+        } else if (quality === 'hd') {
+            resolvedUrl = videoHd;
+        } else if (quality === 'ld') {
+            resolvedUrl = videoLd;
+        }
+        resolvedUrl = resolvedUrl || video720p || videoHd || videoLd;
+
+        if (!resolvedUrl) {
+            await cache.set(cacheKey, '__NOT_FOUND__', 300);
+        }
+
+        return resolvedUrl;
+    })().finally(() => {
+        inFlightWeiboVideoRequests.delete(flightKey);
+    });
+
+    inFlightWeiboVideoRequests.set(flightKey, promise);
+    return promise;
+}
+
 async function handler(ctx) {
     const rawId = ctx.req.param('id');
     const quality = ctx.req.param('quality') || '720p';
@@ -22,40 +91,19 @@ async function handler(ctx) {
     const cacheKey = `weibo:video-stream:${cleanId}:${quality}`;
     let targetUrl = (await cache.get(cacheKey)) as string | undefined;
 
+    if (targetUrl === '__NOT_FOUND__') {
+        return ctx.text('Video not found for this weibo', 404);
+    }
+
     if (!targetUrl) {
         try {
-            const data = await weiboUtils.getShowData('', cleanId);
-            const pageInfo = data?.page_info?.type === 'video' ? data.page_info : data?.retweeted_status?.page_info;
-
-            if (!pageInfo || pageInfo.type !== 'video') {
-                return ctx.text('Video not found for this weibo', 404);
-            }
-
-            const urls = pageInfo.urls || {};
-            const mediaInfo = pageInfo.media_info || {};
-
-            if (quality === '720p') {
-                targetUrl = urls.mp4_720p_mp4 || mediaInfo.mp4_720p_mp4 || urls.mp4_hd_mp4 || mediaInfo.mp4_hd_url || mediaInfo.stream_url_hd || '';
-            } else if (quality === 'hd') {
-                targetUrl = urls.mp4_hd_mp4 || mediaInfo.mp4_hd_url || mediaInfo.stream_url_hd || urls.mp4_720p_mp4 || mediaInfo.mp4_720p_mp4 || '';
-            } else if (quality === 'ld') {
-                targetUrl = urls.mp4_ld_mp4 || mediaInfo.mp4_sd_url || mediaInfo.stream_url || '';
-            }
-
-            if (!targetUrl) {
-                targetUrl = urls.mp4_720p_mp4 || mediaInfo.mp4_720p_mp4 || urls.mp4_hd_mp4 || mediaInfo.mp4_hd_url || mediaInfo.stream_url_hd || urls.mp4_ld_mp4 || mediaInfo.mp4_sd_url || mediaInfo.stream_url || '';
-            }
-
-            if (targetUrl) {
-                const ttl = calculateWeiboTTL(targetUrl, 86400);
-                await cache.set(cacheKey, targetUrl, ttl);
-            }
+            targetUrl = await resolveWeiboVideo(cleanId, quality);
         } catch (err: any) {
             return ctx.text(`Failed to resolve weibo video: ${err.message}`, 502);
         }
     }
 
-    if (!targetUrl) {
+    if (!targetUrl || targetUrl === '__NOT_FOUND__') {
         return ctx.text('Playable video stream not found for this weibo', 404);
     }
 
@@ -63,6 +111,8 @@ async function handler(ctx) {
     if (ctx.req.query('redirect') === '1') {
         ctx.header('Referrer-Policy', 'no-referrer');
         ctx.header('Access-Control-Allow-Origin', '*');
+        const ttl = calculateWeiboTTL(targetUrl, 86400);
+        ctx.header('Cache-Control', `public, max-age=${ttl}`);
         return ctx.redirect(targetUrl, 302);
     }
 
@@ -111,6 +161,10 @@ async function handler(ctx) {
         });
     } catch (streamErr: any) {
         // 异常降级 302
+        ctx.header('Referrer-Policy', 'no-referrer');
+        ctx.header('Access-Control-Allow-Origin', '*');
+        const ttl = calculateWeiboTTL(targetUrl, 86400);
+        ctx.header('Cache-Control', `public, max-age=${ttl}`);
         return ctx.redirect(targetUrl, 302);
     }
 }

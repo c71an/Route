@@ -2,6 +2,8 @@ import type { Route } from '@/types';
 import { ViewType } from '@/types';
 import cache from '@/utils/cache';
 
+import { calculateXhsTTL } from './util';
+
 export const route: Route = {
     path: '/video/:note_id/:type?/:index?',
     name: '视频与实况图 302 播放重定向端点',
@@ -18,9 +20,14 @@ async function handler(ctx) {
     const index = parseInt(ctx.req.param('index') || '0', 10);
     const cleanNoteId = rawNoteId.match(/([0-9a-f]{24})/i)?.[1] || rawNoteId;
 
+    ctx.header('Referrer-Policy', 'no-referrer');
+    ctx.header('Access-Control-Allow-Origin', '*');
+
     const cacheKey = `xiaohongshu:video-stream:${cleanNoteId}:${type}:${index}`;
-    const cachedUrl = await cache.get(cacheKey);
+    const cachedUrl = (await cache.get(cacheKey)) as string | undefined;
     if (cachedUrl) {
+        const ttl = calculateXhsTTL(cachedUrl, 86400);
+        ctx.header('Cache-Control', `public, max-age=${ttl}`);
         return ctx.redirect(cachedUrl, 302);
     }
 

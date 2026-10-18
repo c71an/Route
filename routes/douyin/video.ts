@@ -26,7 +26,12 @@ async function handler(ctx) {
 
     const cacheKey = `douyin:video-stream:${cleanAwemeId}:${type}:${index}`;
     const cachedUrl = (await cache.get(cacheKey)) as string | undefined;
+    if (cachedUrl === '__NOT_FOUND__') {
+        return ctx.text('Video stream not found for this aweme_id', 404);
+    }
     if (cachedUrl) {
+        const ttl = calculateDouyinTTL(cachedUrl, 3600);
+        ctx.header('Cache-Control', `public, max-age=${ttl}`);
         return ctx.redirect(cachedUrl, 302);
     }
 
@@ -74,6 +79,7 @@ async function handler(ctx) {
             const liveUrls = targetImage?.video?.play_addr?.url_list;
             targetUrl = pickPlayableVideoUrl(liveUrls);
             if (!targetUrl && detail.images && detail.images.length > 0) {
+                await cache.set(cacheKey, '__NOT_FOUND__', 300);
                 return ctx.text(`Live photo video stream not found for image index ${index}`, 404);
             }
         } else {
@@ -81,11 +87,18 @@ async function handler(ctx) {
         }
 
         if (targetUrl) {
+            const ttl = calculateDouyinTTL(targetUrl, 3600);
+            ctx.header('Cache-Control', `public, max-age=${ttl}`);
             return ctx.redirect(targetUrl, 302);
         }
 
+        // 负缓存：写入 5 分钟空标记，防止无视频作品被客户端高频重复打向抖音
+        await cache.set(cacheKey, '__NOT_FOUND__', 300);
         return ctx.text('Video stream not found for this aweme_id', 404);
     } catch (err: any) {
+        if (err.message?.includes('未找到') || err.message?.includes('status_code=')) {
+            await cache.set(cacheKey, '__NOT_FOUND__', 300);
+        }
         return ctx.text(`Failed to resolve douyin video: ${err.message}`, 502);
     }
 }
