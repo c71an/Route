@@ -10,6 +10,30 @@ import { parseDate } from '@/utils/parse-date';
 // 随机休眠辅助函数，模拟人类浏览停顿
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// 全局请求节流队列：防止容器重启缓存清空后，多博主路由高并发直接打崩小红书风控
+let lastRequestTime = 0;
+let requestQueue = Promise.resolve();
+
+export async function rateLimitedRequest<T>(fn: () => Promise<T>, minIntervalMs = 1500): Promise<T> {
+    const execute = async () => {
+        const now = Date.now();
+        const timeSinceLast = now - lastRequestTime;
+        if (timeSinceLast < minIntervalMs) {
+            const waitTime = minIntervalMs - timeSinceLast + Math.floor(Math.random() * 500);
+            await sleep(waitTime);
+        }
+        try {
+            return await fn();
+        } finally {
+            lastRequestTime = Date.now();
+        }
+    };
+
+    const current = requestQueue.then(execute, execute);
+    requestQueue = current.then(() => {}, () => {});
+    return current;
+}
+
 // 用户浏览器环境真实模拟（与生成 Cookie 的浏览器保持严格一致）
 const UA_CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36';
 
@@ -83,9 +107,11 @@ function extractInitialState($: CheerioAPI) {
 // 纯 HTTP 获取用户主页数据并提取带 xsec_token 的笔记列表
 export async function getUserWithCookie(url: string, cookie: string) {
     logger.http(`Requesting XiaoHongShu User Profile: ${url}`);
-    const res = await ofetch(url, {
-        headers: getHeaders(cookie),
-    });
+    const res = await rateLimitedRequest(() =>
+        ofetch(url, {
+            headers: getHeaders(cookie),
+        })
+    );
 
     const $ = load(res);
     const script = extractInitialState($);
@@ -224,9 +250,11 @@ export function fetchNoteDetail(noteIdOrLink: string, cookie: string, profileUrl
     const promise = (async () => {
         const link = noteIdOrLink.startsWith('http') ? noteIdOrLink : `https://www.xiaohongshu.com/explore/${cleanId}`;
         logger.http(`Requesting XiaoHongShu Note Detail: ${link}`);
-        const res = await ofetch(link, {
-            headers: getHeaders(cookie, profileUrl),
-        });
+        const res = await rateLimitedRequest(() =>
+            ofetch(link, {
+                headers: getHeaders(cookie, profileUrl),
+            })
+        );
 
         const $ = load(res);
         const script = extractInitialState($);

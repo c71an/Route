@@ -37,8 +37,38 @@ async function handler(ctx) {
 
     try {
         const detail = await fetchAwemeDetail(cleanAwemeId, cookie);
-        let targetUrl = '';
 
+        // 批量预热写入缓存：顺手把这篇作品的所有实况图和主视频全部写入缓存，供后续并发请求秒开
+        if (detail.images && detail.images.length > 0) {
+            for (let i = 0; i < detail.images.length; i++) {
+                const liveUrls = detail.images[i]?.video?.play_addr?.url_list;
+                const liveUrl = pickPlayableVideoUrl(liveUrls);
+                if (liveUrl) {
+                    const ttl = calculateDouyinTTL(liveUrl, 3600);
+                    cache.set(`douyin:video-stream:${cleanAwemeId}:live:${i}`, liveUrl, ttl);
+                }
+            }
+        }
+
+        const bitRates = detail.video?.bit_rate || [];
+        let mainVideoUrl = '';
+        for (const br of bitRates) {
+            const url = pickPlayableVideoUrl(br.play_addr?.url_list);
+            if (url && (url.includes('-weba.') || !url.includes('-web.'))) {
+                mainVideoUrl = url;
+                break;
+            }
+        }
+        if (!mainVideoUrl) {
+            const bestPlayAddr = bitRates[0]?.play_addr?.url_list || detail.video?.play_addr?.url_list || [];
+            mainVideoUrl = pickPlayableVideoUrl(bestPlayAddr);
+        }
+        if (mainVideoUrl) {
+            const ttl = calculateDouyinTTL(mainVideoUrl, 3600);
+            cache.set(`douyin:video-stream:${cleanAwemeId}:video:0`, mainVideoUrl, ttl);
+        }
+
+        let targetUrl = '';
         if (type === 'live') {
             const targetImage = detail.images?.[index];
             const liveUrls = targetImage?.video?.play_addr?.url_list;
@@ -47,24 +77,10 @@ async function handler(ctx) {
                 return ctx.text(`Live photo video stream not found for image index ${index}`, 404);
             }
         } else {
-            const bitRates = detail.video?.bit_rate || [];
-            for (const br of bitRates) {
-                const url = pickPlayableVideoUrl(br.play_addr?.url_list);
-                if (url && (url.includes('-weba.') || !url.includes('-web.'))) {
-                    targetUrl = url;
-                    break;
-                }
-            }
-            if (!targetUrl) {
-                const bestPlayAddr = bitRates[0]?.play_addr?.url_list || detail.video?.play_addr?.url_list || [];
-                targetUrl = pickPlayableVideoUrl(bestPlayAddr);
-            }
+            targetUrl = mainVideoUrl;
         }
 
         if (targetUrl) {
-            // 自适应提取真实有效秒数进行缓存，兼顾安全缓冲
-            const ttl = calculateDouyinTTL(targetUrl, 3600);
-            await cache.set(cacheKey, targetUrl, ttl);
             return ctx.redirect(targetUrl, 302);
         }
 

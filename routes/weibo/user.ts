@@ -124,20 +124,33 @@ async function handler(ctx) {
         )
     );
 
-    let resultItems = await Promise.all(
-        cards
-            .filter((item) => {
-                if (item.mblog === undefined) {
-                    return false;
-                }
-                return !(showRetweeted === '0' && item.mblog.retweeted_status);
-            })
-            .map(async (item) => {
-                // TODO: unify cache key and let weiboUtils.getShowData() handle the cache? It seems safe to do so.
-                //       Need more investigation, pending for now since the current version works fine.
-                // TODO: getShowData() on demand? The API seems to return most things we need since 2022/05/21.
-                //       Need more investigation, pending for now since the current version works fine.
-                let { bid } = item.mblog;
+// 限制并发执行池，防止容器重启缓存全部失效时十几条微博同时并发请求 m.weibo.cn 触发风控封禁
+async function mapConcurrent<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+    const results: R[] = new Array(items.length);
+    let index = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        while (index < items.length) {
+            const current = index++;
+            results[current] = await fn(items[current]);
+        }
+    });
+    await Promise.all(workers);
+    return results;
+}
+
+    const targetCards = cards.filter((item) => {
+        if (item.mblog === undefined) {
+            return false;
+        }
+        return !(showRetweeted === '0' && item.mblog.retweeted_status);
+    });
+
+    let resultItems = await mapConcurrent(targetCards, 2, async (item) => {
+        // TODO: unify cache key and let weiboUtils.getShowData() handle the cache? It seems safe to do so.
+        //       Need more investigation, pending for now since the current version works fine.
+        // TODO: getShowData() on demand? The API seems to return most things we need since 2022/05/21.
+        //       Need more investigation, pending for now since the current version works fine.
+        let { bid } = item.mblog;
                 const { retweeted_status, created_at } = item.mblog;
                 if (bid === '') {
                     const url = new URL(item.scheme);
@@ -195,8 +208,7 @@ async function handler(ctx) {
                     description,
                     isPinned: item.profile_type_id?.startsWith('proweibotop'),
                 };
-            })
-    );
+    });
 
     // remove pinned weibo if they are posted before the earliest **ordinary** weibo
     // there may be multiple pinned weibo at the same time, only remove the ones that meet the above condition

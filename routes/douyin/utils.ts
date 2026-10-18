@@ -200,72 +200,88 @@ export async function fetchUserAweme(secUid: string, cookie: string): Promise<Po
     return res;
 }
 
+// 记录正在进行中的单条视频详情请求 Promise，防止高并发（例如多张实况图同时请求）重复回源击穿抖音
+const inFlightAwemeRequests = new Map<string, Promise<any>>();
+
 /**
- * 纯 HTTP 获取单条视频详情（用于 302 视频重定向播放端点）
+ * 纯 HTTP 获取单条视频详情（内置 Singleflight 防并发重复拉取机制，用于 302 视频重定向播放端点）
  */
-export async function fetchAwemeDetail(awemeId: string, cookie: string) {
-    logger.http(`Requesting Douyin Aweme Detail for aweme_id: ${awemeId}`);
-
-    const { uifid, fp } = extractCookieFingerprints(cookie);
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-
-    const detailParams: Record<string, string> = {
-        device_platform: 'webapp',
-        aid: '6383',
-        channel: 'channel_pc_web',
-        aweme_id: awemeId,
-        update_version_code: '170400',
-        pc_client_type: '1',
-    };
-
-    if (uifid) {
-        detailParams.uifid = uifid;
-    }
-    if (fp) {
-        detailParams.fp = fp;
-        detailParams.verifyFp = fp;
+export function fetchAwemeDetail(awemeId: string, cookie: string): Promise<any> {
+    if (inFlightAwemeRequests.has(awemeId)) {
+        logger.http(`Douyin Aweme Detail deduplicated for aweme_id: ${awemeId}`);
+        return inFlightAwemeRequests.get(awemeId)!;
     }
 
-    const baseQuery = new URLSearchParams(detailParams).toString();
-    const aBogus = signABogus(baseQuery, UA);
+    const promise = (async () => {
+        logger.http(`Requesting Douyin Aweme Detail for aweme_id: ${awemeId}`);
 
-    const fullParams = new URLSearchParams(baseQuery);
-    fullParams.set('a_bogus', aBogus);
-    fullParams.set('timestamp', timestamp);
+        const { uifid, fp } = extractCookieFingerprints(cookie);
+        const timestamp = Math.floor(Date.now() / 1000).toString();
 
-    const queryToHash = fullParams.toString();
-    const hashPreimage = `${uifid}_${timestamp}_${ARGUS_SALT}_${queryToHash}`;
-    const webSignature = crypto.createHash('md5').update(hashPreimage).digest('hex');
+        const detailParams: Record<string, string> = {
+            device_platform: 'webapp',
+            aid: '6383',
+            channel: 'channel_pc_web',
+            aweme_id: awemeId,
+            update_version_code: '170400',
+            pc_client_type: '1',
+        };
 
-    fullParams.set('x-secsdk-web-signature', webSignature);
+        if (uifid) {
+            detailParams.uifid = uifid;
+        }
+        if (fp) {
+            detailParams.fp = fp;
+            detailParams.verifyFp = fp;
+        }
 
-    const apiUrl = `https://www.douyin.com/aweme/v1/web/aweme/detail/?${fullParams.toString()}`;
+        const baseQuery = new URLSearchParams(detailParams).toString();
+        const aBogus = signABogus(baseQuery, UA);
 
-    const headers: Record<string, string> = {
-        'User-Agent': UA,
-        Referer: `https://www.douyin.com/video/${awemeId}`,
-        Cookie: cookie,
-        Accept: 'application/json, text/plain, */*',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Sec-Ch-Ua': '"Google Chrome";v="155", "Chromium";v="155", "Not(A:Brand";v="24"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-origin',
-    };
+        const fullParams = new URLSearchParams(baseQuery);
+        fullParams.set('a_bogus', aBogus);
+        fullParams.set('timestamp', timestamp);
 
-    if (uifid) {
-        headers.uifid = uifid;
-        headers['x-secsdk-web-signature'] = webSignature;
-        headers['x-secsdk-web-expire'] = timestamp;
-    }
+        const queryToHash = fullParams.toString();
+        const hashPreimage = `${uifid}_${timestamp}_${ARGUS_SALT}_${queryToHash}`;
+        const webSignature = crypto.createHash('md5').update(hashPreimage).digest('hex');
 
-    const res = (await ofetch(apiUrl, { headers })) as any;
+        fullParams.set('x-secsdk-web-signature', webSignature);
 
-    if (res.status_code !== 0 || !res.aweme_detail) {
-        throw new Error(`获取视频详情失败: status_code=${res.status_code}`);
-    }
+        const apiUrl = `https://www.douyin.com/aweme/v1/web/aweme/detail/?${fullParams.toString()}`;
 
-    return res.aweme_detail;
+        const headers: Record<string, string> = {
+            'User-Agent': UA,
+            Referer: `https://www.douyin.com/video/${awemeId}`,
+            Cookie: cookie,
+            Accept: 'application/json, text/plain, */*',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Sec-Ch-Ua': '"Google Chrome";v="155", "Chromium";v="155", "Not(A:Brand";v="24"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+        };
+
+        if (uifid) {
+            headers.uifid = uifid;
+            headers['x-secsdk-web-signature'] = webSignature;
+            headers['x-secsdk-web-expire'] = timestamp;
+        }
+
+        const res = (await ofetch(apiUrl, { headers })) as any;
+
+        if (res.status_code !== 0 || !res.aweme_detail) {
+            throw new Error(`获取视频详情失败: status_code=${res.status_code}`);
+        }
+
+        return res.aweme_detail;
+    })().finally(() => {
+        inFlightAwemeRequests.delete(awemeId);
+    });
+
+    inFlightAwemeRequests.set(awemeId, promise);
+    return promise;
 }
+
