@@ -6,7 +6,7 @@ import { ViewType } from '@/types';
 import cache from '@/utils/cache';
 import { fallback, queryToBoolean } from '@/utils/readable-social';
 
-import { getUserWithCookie, normalizeXiaohongshuImageUrl, renderNotesFulltext } from './util';
+import { getXiaohongshuCookie, getUserWithCookie, normalizeXiaohongshuImageUrl, renderNotesFulltext } from './util';
 
 export const route: Route = {
     path: '/user/:user_id/notes/:routeParams?',
@@ -48,10 +48,10 @@ async function handler(ctx) {
         }
     }
     const url = `https://www.xiaohongshu.com/user/profile/${userId}`;
-    const cookie = config.xiaohongshu?.cookie || process.env.XIAOHONGSHU_COOKIE;
+    const cookie = getXiaohongshuCookie();
 
     if (!cookie) {
-        throw new Error('未检测到 XIAOHONGSHU_COOKIE！纯 HTTP 轻量模式需要配置小红书网页版 Cookie。');
+        throw new Error('未检测到小红书 Cookie！请在 cookies/xiaohongshu.txt 写入或配置 XIAOHONGSHU_COOKIE 环境变量。');
     }
 
     const host = ctx.req.header('x-forwarded-host') || ctx.req.header('host');

@@ -1,0 +1,9 @@
+# Ignore sensitive cookie files
+cookies/*.txt
+cookies/*.cookie
+!cookies/README.md
+*.cookie
+*.txt
+.env
+.env.*
+!.env.example

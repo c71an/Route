@@ -8,7 +8,7 @@ import cache from '@/utils/cache';
 import { parseDate } from '@/utils/parse-date';
 import { fallback, queryToBoolean } from '@/utils/readable-social';
 
-import { calculateDouyinTTL, fetchUserAweme, getOriginAvatar, pickPlayableVideoUrl } from './utils';
+import { calculateDouyinTTL, fetchUserAweme, getDouyinCookie, getOriginAvatar, pickPlayableVideoUrl } from './utils';
 
 export const route: Route = {
     path: '/user/:sec_uid/:routeParams?',
@@ -52,9 +52,9 @@ async function handler(ctx) {
         displayLivePhoto = fallback(undefined, queryToBoolean(routeParams.displayLivePhoto), true);
     }
 
-    const cookie = config.douyin?.cookie || process.env.DOUYIN_COOKIE;
+    const cookie = getDouyinCookie();
     if (!cookie) {
-        throw new Error('未检测到 DOUYIN_COOKIE！纯 HTTP 轻量模式需要配置抖音网页版 Cookie。');
+        throw new Error('未检测到抖音 Cookie！请在 cookies/douyin.txt 写入或配置 DOUYIN_COOKIE 环境变量。');
     }
 
     const host = ctx.req.header('x-forwarded-host') || ctx.req.header('host');

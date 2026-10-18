@@ -1,9 +1,41 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
+import { config } from '@/config';
 import logger from '@/utils/logger';
 import ofetch from '@/utils/ofetch';
 import { sign as signABogus } from './abogus';
 import type { PostData } from './types';
+
+const cookieCache = new Map<string, { mtime: number; content: string }>();
+
+/**
+ * 动态加载 Cookie：优先检查挂载的 cookies/<service>.txt 文件（支持修改后免重启即刻生效），不存在时回退到环境变量
+ */
+export function getDynamicCookie(service: string, envVarName: string, configCookie?: string): string {
+    const filePath = path.resolve(process.cwd(), 'cookies', `${service}.txt`);
+    try {
+        if (fs.existsSync(filePath)) {
+            const stat = fs.statSync(filePath);
+            const cached = cookieCache.get(filePath);
+            if (cached && cached.mtime === stat.mtimeMs) {
+                return cached.content;
+            }
+            const content = fs.readFileSync(filePath, 'utf-8').trim();
+            cookieCache.set(filePath, { mtime: stat.mtimeMs, content });
+            if (content) {
+                return content;
+            }
+        }
+    } catch (_) {}
+
+    return (configCookie || process.env[envVarName] || '').trim();
+}
+
+export function getDouyinCookie(): string {
+    return getDynamicCookie('douyin', 'DOUYIN_COOKIE', config.douyin?.cookie);
+}
 
 export const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36';
 

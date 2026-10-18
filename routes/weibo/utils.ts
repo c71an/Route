@@ -1,6 +1,33 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import querystring from 'node:querystring';
 
 import { load } from 'cheerio';
+
+const cookieCache = new Map<string, { mtime: number; content: string }>();
+
+/**
+ * 动态加载 Cookie：优先检查挂载的 cookies/<service>.txt 文件（支持修改后免重启即刻生效），不存在时回退到环境变量
+ */
+export function getDynamicCookie(service: string, envVarName: string, configCookie?: string): string {
+    const filePath = path.resolve(process.cwd(), 'cookies', `${service}.txt`);
+    try {
+        if (fs.existsSync(filePath)) {
+            const stat = fs.statSync(filePath);
+            const cached = cookieCache.get(filePath);
+            if (cached && cached.mtime === stat.mtimeMs) {
+                return cached.content;
+            }
+            const content = fs.readFileSync(filePath, 'utf-8').trim();
+            cookieCache.set(filePath, { mtime: stat.mtimeMs, content });
+            if (content) {
+                return content;
+            }
+        }
+    } catch (_) {}
+
+    return (configCookie || process.env[envVarName] || '').trim();
+}
 
 import { config } from '@/config';
 import cache from '@/utils/cache';
@@ -171,11 +198,12 @@ const weiboUtils = {
         };
 
         return async (renew: any = false) => {
-            if (config.weibo.cookies) {
+            const customCookie = getDynamicCookie('weibo', 'WEIBO_COOKIES', config.weibo?.cookies);
+            if (customCookie) {
                 if (renew) {
-                    throw new Error('Cookies expired. Please update WEIBO_COOKIES');
+                    throw new Error('Cookies expired. Please update WEIBO_COOKIES or cookies/weibo.txt');
                 }
-                return config.weibo.cookies;
+                return customCookie;
             }
 
             if (renew) {
@@ -195,10 +223,11 @@ const weiboUtils = {
             try {
                 return await callback(await weiboUtils.getCookies(false), verifier);
             } catch (error: any) {
-                if (error.message?.includes('WEIBO_COOKIES')) {
+                const customCookie = getDynamicCookie('weibo', 'WEIBO_COOKIES', config.weibo?.cookies);
+                if (error.message?.includes('WEIBO_COOKIES') || error.message?.includes('cookies/weibo.txt')) {
                     throw error;
                 }
-                if (errors > 10 && !config.weibo.cookies) {
+                if (errors > 10 && !customCookie) {
                     logger.warn(`Too many errors while fetching data from weibo API, renewing Cookies: ${error.message}`);
                     logger.info('Please open an issue on GitHub if renewing Cookies fixes the error');
                 } else if ((error.name === 'HTTPError' || error.name === 'FetchError') && error.status === 432) {

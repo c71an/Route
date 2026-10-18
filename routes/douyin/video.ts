@@ -3,7 +3,7 @@ import type { Route } from '@/types';
 import { ViewType } from '@/types';
 import cache from '@/utils/cache';
 
-import { calculateDouyinTTL, fetchAwemeDetail, pickPlayableVideoUrl } from './utils';
+import { calculateDouyinTTL, fetchAwemeDetail, getDouyinCookie, pickPlayableVideoUrl } from './utils';
 
 export const route: Route = {
     path: '/video/:aweme_id/:type?/:index?',
@@ -35,9 +35,9 @@ async function handler(ctx) {
         return ctx.redirect(cachedUrl, 302);
     }
 
-    const cookie = config.douyin?.cookie || process.env.DOUYIN_COOKIE;
+    const cookie = getDouyinCookie();
     if (!cookie) {
-        return ctx.text('DOUYIN_COOKIE is required', 500);
+        return ctx.text('DOUYIN_COOKIE is required (set via cookies/douyin.txt or DOUYIN_COOKIE env)', 500);
     }
 
     try {
