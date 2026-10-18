@@ -802,13 +802,18 @@ const weiboUtils = {
     sinaimgTvax: (() => {
         // https://datatracker.ietf.org/doc/html/rfc1808#section-2.4.3
         const regex = /(?<=\/\/)wx(?=[1-4]\.sinaimg\.cn\/)/gi;
-        // const prefixes = ['tva', 'tvax'];
-        // let cnt = 0;
-        // const replace = (html) => {
-        //     cnt = (cnt + 1) % 2;
-        //     return html.replace(regex, prefixes[cnt]);
-        // };
-        const replace = (html) => html.replaceAll(regex, 'tvax'); // enforce `tvax` as `tva` has a strict WAF
+        const replace = (html: string) => {
+            let res = html.replaceAll(regex, 'tvax'); // enforce `tvax` as `tva` has a strict WAF
+            const defaultTemplate = 'http://192.168.1.235:8080/api/proxy/image?url=${href_ue}';
+            const template = process.env.WEIBO_HOTLINK_TEMPLATE || config.hotlink?.template || process.env.HOTLINK_TEMPLATE || defaultTemplate;
+            if (template && template !== 'none' && template !== 'false' && template !== '0') {
+                res = res.replaceAll(/(?<!url=)https?:\/\/(?:tvax|tva|wx|ww)[0-9]?\.sinaimg\.cn\/[^\s"'<>)]+/gi, (match) => {
+                    const tvaxUrl = match.replace(/(?<=\/\/)wx(?=[1-4]\.sinaimg\.cn\/)/gi, 'tvax');
+                    return template.replaceAll('${href_ue}', encodeURIComponent(tvaxUrl)).replaceAll('${href}', tvaxUrl);
+                });
+            }
+            return res;
+        };
         const replaceKV = (obj, keys) => {
             for (const key of keys) {
                 const value = obj[key];
