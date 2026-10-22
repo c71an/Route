@@ -5,40 +5,19 @@ import path from 'node:path';
 import { config } from '@/config';
 import logger from '@/utils/logger';
 import ofetch from '@/utils/ofetch';
+import { getBrowserFingerprint, getDynamicCookie } from '../common/fingerprint';
+import { createHeaders } from '../common/headers';
 import { sign as signABogus } from './abogus';
 import type { PostData } from './types';
 
-const cookieCache = new Map<string, { mtime: number; content: string }>();
-
-/**
- * 动态加载 Cookie：优先检查挂载的 cookies/<service>.txt 文件（支持修改后免重启即刻生效），不存在时回退到环境变量
- */
-export function getDynamicCookie(service: string, envVarName: string, configCookie?: string): string {
-    const filePath = path.resolve(process.cwd(), 'cookies', `${service}.txt`);
-    try {
-        if (fs.existsSync(filePath)) {
-            const stat = fs.statSync(filePath);
-            const cached = cookieCache.get(filePath);
-            if (cached && cached.mtime === stat.mtimeMs) {
-                return cached.content;
-            }
-            const content = fs.readFileSync(filePath, 'utf-8').trim();
-            cookieCache.set(filePath, { mtime: stat.mtimeMs, content });
-            if (content) {
-                return content;
-            }
-        }
-    } catch (_) {}
-
-    return (configCookie || process.env[envVarName] || '').trim();
-}
+export { getDynamicCookie };
 
 export function getDouyinCookie(): string {
     return getDynamicCookie('douyin', 'DOUYIN_COOKIE', config.douyin?.cookie);
 }
 
-export const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36';
-
+// 动态导出 UA，随 cookies/ua.txt 热生效
+export const UA = getBrowserFingerprint('douyin').ua;
 // 字节跳动火山引擎 ArgusSecurityPlugin / webSign 策略盐值
 const ARGUS_SALT = 'A96D855A08C0A9707F8BEF0D9A527E4E';
 
@@ -146,6 +125,8 @@ export async function fetchUserAweme(secUid: string, cookie: string): Promise<Po
     const { uifid, fp } = extractCookieFingerprints(cookie);
     const timestamp = Math.floor(Date.now() / 1000).toString();
 
+    const browserFp = getBrowserFingerprint('douyin');
+
     const baseParams: Record<string, string> = {
         device_platform: 'webapp',
         aid: '6383',
@@ -164,10 +145,10 @@ export async function fetchUserAweme(secUid: string, cookie: string): Promise<Po
         browser_language: 'zh-CN',
         browser_platform: 'Win32',
         browser_name: 'Chrome',
-        browser_version: '155.0.0.0',
+        browser_version: browserFp.fullVersion,
         browser_online: 'true',
         engine_name: 'Blink',
-        engine_version: '155.0.0.0',
+        engine_version: browserFp.fullVersion,
         os_name: 'Windows',
         os_version: '10',
         cpu_core_num: '12',
@@ -188,7 +169,7 @@ export async function fetchUserAweme(secUid: string, cookie: string): Promise<Po
 
     // 1. 计算第一层签名 a_bogus
     const baseQuery = new URLSearchParams(baseParams).toString();
-    const aBogus = signABogus(baseQuery, UA);
+    const aBogus = signABogus(baseQuery, browserFp.ua);
 
     // 2. 组装并计算第二层火山引擎 ArgusSecurityPlugin 专属签名 x-secsdk-web-signature
     const fullParams = new URLSearchParams(baseQuery);
@@ -203,25 +184,19 @@ export async function fetchUserAweme(secUid: string, cookie: string): Promise<Po
 
     const apiUrl = `https://www.douyin.com/aweme/v1/web/aweme/post/?${fullParams.toString()}`;
 
-    const headers: Record<string, string> = {
-        'User-Agent': UA,
-        Referer: `https://www.douyin.com/user/${secUid}`,
-        Cookie: cookie,
-        Accept: 'application/json, text/plain, */*',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Sec-Ch-Ua': '"Google Chrome";v="155", "Chromium";v="155", "Not(A:Brand";v="24"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-origin',
-    };
-
-    if (uifid) {
-        headers.uifid = uifid;
-        headers['x-secsdk-web-signature'] = webSignature;
-        headers['x-secsdk-web-expire'] = timestamp;
-    }
+    const headers = createHeaders({
+        service: 'douyin',
+        cookie,
+        referer: `https://www.douyin.com/user/${secUid}`,
+        mode: 'json',
+        extraHeaders: {
+            ...(uifid && {
+                uifid,
+                'x-secsdk-web-signature': webSignature,
+                'x-secsdk-web-expire': timestamp,
+            }),
+        },
+    });
 
     const res = (await ofetch(apiUrl, { headers })) as PostData;
 
@@ -267,8 +242,10 @@ export function fetchAwemeDetail(awemeId: string, cookie: string): Promise<any> 
             detailParams.verifyFp = fp;
         }
 
+        const browserFp = getBrowserFingerprint('douyin');
+
         const baseQuery = new URLSearchParams(detailParams).toString();
-        const aBogus = signABogus(baseQuery, UA);
+        const aBogus = signABogus(baseQuery, browserFp.ua);
 
         const fullParams = new URLSearchParams(baseQuery);
         fullParams.set('a_bogus', aBogus);
@@ -282,25 +259,19 @@ export function fetchAwemeDetail(awemeId: string, cookie: string): Promise<any> 
 
         const apiUrl = `https://www.douyin.com/aweme/v1/web/aweme/detail/?${fullParams.toString()}`;
 
-        const headers: Record<string, string> = {
-            'User-Agent': UA,
-            Referer: `https://www.douyin.com/video/${awemeId}`,
-            Cookie: cookie,
-            Accept: 'application/json, text/plain, */*',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Sec-Ch-Ua': '"Google Chrome";v="155", "Chromium";v="155", "Not(A:Brand";v="24"',
-            'Sec-Ch-Ua-Mobile': '?0',
-            'Sec-Ch-Ua-Platform': '"Windows"',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-        };
-
-        if (uifid) {
-            headers.uifid = uifid;
-            headers['x-secsdk-web-signature'] = webSignature;
-            headers['x-secsdk-web-expire'] = timestamp;
-        }
+        const headers = createHeaders({
+            service: 'douyin',
+            cookie,
+            referer: `https://www.douyin.com/video/${awemeId}`,
+            mode: 'json',
+            extraHeaders: {
+                ...(uifid && {
+                    uifid,
+                    'x-secsdk-web-signature': webSignature,
+                    'x-secsdk-web-expire': timestamp,
+                }),
+            },
+        });
 
         const res = (await ofetch(apiUrl, { headers })) as any;
 

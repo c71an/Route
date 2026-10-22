@@ -9,31 +9,10 @@ import cache from '@/utils/cache';
 import logger from '@/utils/logger';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
+import { getDynamicCookie } from '../common/fingerprint';
+import { createHeaders } from '../common/headers';
 
-const cookieCache = new Map<string, { mtime: number; content: string }>();
-
-/**
- * 动态加载 Cookie：优先检查挂载的 cookies/<service>.txt 文件（支持修改后免重启即刻生效），不存在时回退到环境变量
- */
-export function getDynamicCookie(service: string, envVarName: string, configCookie?: string): string {
-    const filePath = path.resolve(process.cwd(), 'cookies', `${service}.txt`);
-    try {
-        if (fs.existsSync(filePath)) {
-            const stat = fs.statSync(filePath);
-            const cached = cookieCache.get(filePath);
-            if (cached && cached.mtime === stat.mtimeMs) {
-                return cached.content;
-            }
-            const content = fs.readFileSync(filePath, 'utf-8').trim();
-            cookieCache.set(filePath, { mtime: stat.mtimeMs, content });
-            if (content) {
-                return content;
-            }
-        }
-    } catch (_) {}
-
-    return (configCookie || process.env[envVarName] || '').trim();
-}
+export { getDynamicCookie };
 
 export function getXiaohongshuCookie(): string {
     return getDynamicCookie('xiaohongshu', 'XIAOHONGSHU_COOKIE', config.xiaohongshu?.cookie);
@@ -66,32 +45,17 @@ export async function rateLimitedRequest<T>(fn: () => Promise<T>, minIntervalMs 
     return current;
 }
 
-// 用户浏览器环境真实模拟（与生成 Cookie 的浏览器保持严格一致）
-const UA_CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36';
-
-const getHeaders = (cookie?: string, referer?: string) => ({
-    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'Accept-Encoding': 'gzip, deflate, br, zstd',
-    'Accept-Language': 'zh-CN, zh;q=0.9, en-US;q=0.8, en;q=0.7',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-    Dnt: '1',
-    Host: 'www.xiaohongshu.com',
-    Pragma: 'no-cache',
-    Priority: 'u=0, i',
-    'Sec-Ch-Ua': '"Chromium";v="154", "Google Chrome";v="154", "Not A(Brand";v="99"',
-    'Sec-Ch-Ua-Mobile': '?0',
-    'Sec-Ch-Ua-Platform': '"Windows"',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': referer ? 'same-origin' : 'none',
-    'Sec-Fetch-User': '?1',
-    'Upgrade-Insecure-Requests': '1',
-    'User-Agent': UA_CHROME,
-    ...(referer && { Referer: referer }),
-    ...(cookie && { Cookie: cookie }),
-});
-
+// 用户浏览器环境真实模拟（动态热读取最新 UA 与 Client Hints）
+const getHeaders = (cookie?: string, referer?: string) =>
+    createHeaders({
+        service: 'xiaohongshu',
+        cookie,
+        referer,
+        mode: 'document',
+        extraHeaders: {
+            Host: 'www.xiaohongshu.com',
+        },
+    });
 // 规范化小红书图片直链：将带有时间戳与临时鉴权 Token 的动态 CDN 链接转换为永久有效的免鉴权静态链接
 export function normalizeXiaohongshuImageUrl(url?: string): string {
     if (!url) {
