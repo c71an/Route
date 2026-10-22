@@ -43,7 +43,8 @@ RUN SHA=$(cat /app/GIT_COMMIT_SHA | cut -c1-8) && \
 # 2. 清空上游 lib/routes/* 下所有子目录（保留根级通用文件如 healthz.ts, index.tsx 等）
 RUN find /app/lib/routes -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
 
-# 3. 注入本项目 routes/ 中的自定义路由
+# 3. 注入本项目 utils/ 通用工具库与 routes/ 中的自定义路由
+COPY ./utils/ /app/lib/utils/
 COPY ./routes/ /app/lib/routes/
 
 # 4. 调整防盗链逻辑：HOTLINK_TEMPLATE 仅对图片代理，对视频不代理

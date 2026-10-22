@@ -1,6 +1,6 @@
 import type { Route } from '@/types';
 import { ViewType } from '@/types';
-import { getBrowserFingerprint, updateUserAgent } from '../common/fingerprint';
+import { getBrowserFingerprint, updateUserAgent } from '@/utils/fingerprint';
 
 export const route: Route = {
     path: '/',

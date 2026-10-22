@@ -5,8 +5,8 @@ import path from 'node:path';
 import { config } from '@/config';
 import logger from '@/utils/logger';
 import ofetch from '@/utils/ofetch';
-import { getBrowserFingerprint, getDynamicCookie } from '../common/fingerprint';
-import { createHeaders } from '../common/headers';
+import { getBrowserFingerprint, getDynamicCookie } from '@/utils/fingerprint';
+import { createHeaders } from '@/utils/headers';
 import { sign as signABogus } from './abogus';
 import type { PostData } from './types';
 

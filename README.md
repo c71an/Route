@@ -49,9 +49,14 @@ services:
 
 ```text
 ├── .github/workflows/docker-build.yml   # 自动编译发布工作流 (arm64)
+├── utils/                               # 基础通用工具库 (指纹热更、标准请求头等)
 ├── routes/                              # 自定义路由目录
 │   ├── weibo/                          # 微博路由与防频刷工具
+│   ├── xiaohongshu/                    # 小红书纯 HTTP 高速路由
+│   ├── douyin/                         # 抖音自适应反爬路由
+│   ├── ua/                             # User-Agent 管理控制台
 │   └── ...                             # 其他私有路由 (7kid, chinacdc, gov 等)
+├── cookies/                             # 动态凭据挂载目录 (Cookie 与 UA 运行时映射)
 ├── Dockerfile                           # 极简三阶段构建 (upstream -> builder -> runner)
 └── README.md
 ```

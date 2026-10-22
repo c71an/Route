@@ -9,8 +9,8 @@ import cache from '@/utils/cache';
 import logger from '@/utils/logger';
 import ofetch from '@/utils/ofetch';
 import { parseDate } from '@/utils/parse-date';
-import { getDynamicCookie } from '../common/fingerprint';
-import { createHeaders } from '../common/headers';
+import { getDynamicCookie } from '@/utils/fingerprint';
+import { createHeaders } from '@/utils/headers';
 
 export { getDynamicCookie };
 
